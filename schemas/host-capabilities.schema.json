@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/codex/host-capabilities.schema.json",
+  "title": "HostCapabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "host_id", "os", "shell", "path_style", "sandbox", "pty", "gui", "roots", "available_tools"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "host_id": {"type": "string", "minLength": 1},
+    "os": {"enum": ["windows", "macos", "linux"]},
+    "shell": {"type": "string", "minLength": 1},
+    "path_style": {"enum": ["windows", "posix"]},
+    "sandbox": {"enum": ["supported", "limited", "unavailable", "unknown"]},
+    "pty": {"type": "boolean"},
+    "gui": {"type": "boolean"},
+    "roots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codex_home"],
+      "properties": {"codex_home": {"type": "string", "minLength": 1}}
+    },
+    "available_tools": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+  }
+}

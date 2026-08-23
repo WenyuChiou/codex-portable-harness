@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/codex/task-checkpoint.schema.json",
+  "title": "TaskCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "status", "evidence_refs", "metrics"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "parent_id": {"type": ["string", "null"]},
+    "status": {"enum": ["running", "completed", "blocked", "budget_exhausted", "error", "cancelled"]},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cycles", "tool_calls", "elapsed_seconds", "transcript_bytes", "same_failure_retries", "no_evidence_cycles", "children_spawned", "active_children", "task_packet_tokens", "parent_summary_tokens", "memory_digest_tokens", "child_result_words"],
+      "properties": {
+        "cycles": {"type": "integer", "minimum": 0},
+        "tool_calls": {"type": "integer", "minimum": 0},
+        "elapsed_seconds": {"type": "integer", "minimum": 0},
+        "transcript_bytes": {"type": "integer", "minimum": 0},
+        "last_checkpoint_bytes": {"type": "integer", "minimum": 0, "default": 0},
+        "same_failure_retries": {"type": "integer", "minimum": 0},
+        "no_evidence_cycles": {"type": "integer", "minimum": 0},
+        "children_spawned": {"type": "integer", "minimum": 0},
+        "active_children": {"type": "integer", "minimum": 0},
+        "task_packet_tokens": {"type": "integer", "minimum": 0},
+        "parent_summary_tokens": {"type": "integer", "minimum": 0},
+        "memory_digest_tokens": {"type": "integer", "minimum": 0},
+        "child_result_words": {"type": "integer", "minimum": 0}
+      }
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "limits"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_plan_act_reflect_cycles": {"type": "integer", "minimum": 0},
+            "max_tool_calls": {"type": "integer", "minimum": 0},
+            "max_wall_time_seconds": {"type": "integer", "minimum": 0},
+            "checkpoint_transcript_bytes": {"type": "integer", "minimum": 0},
+            "max_transcript_bytes": {"type": "integer", "minimum": 0},
+            "max_same_failure_retries": {"type": "integer", "minimum": 0},
+            "max_no_evidence_cycles": {"type": "integer", "minimum": 0},
+            "max_children_per_parent": {"type": "integer", "minimum": 0},
+            "max_concurrency": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "stop_reason": {"type": ["string", "null"]}
+  }
+}

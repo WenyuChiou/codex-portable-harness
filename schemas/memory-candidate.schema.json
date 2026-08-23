@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/codex/memory-candidate.schema.json",
+  "title": "MemoryCandidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "source_task", "operation", "target_ref", "summary", "evidence_refs", "state", "created_at", "decided_at", "approved_by"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "source_task": {"type": "string", "minLength": 1},
+    "operation": {"enum": ["add", "archive", "supersede", "delete"]},
+    "target_ref": {"type": ["string", "null"]},
+    "summary": {"type": "string", "minLength": 1},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
+    "state": {"enum": ["proposed", "approved", "rejected"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "decided_at": {"type": ["string", "null"], "format": "date-time"},
+    "approved_by": {"type": ["string", "null"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation": {"const": "add"}}},
+      "then": {"properties": {"target_ref": {"type": "null"}}},
+      "else": {"properties": {"target_ref": {"type": "string", "minLength": 1}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "proposed"}}},
+      "then": {
+        "properties": {
+          "decided_at": {"type": "null"},
+          "approved_by": {"type": "null"}
+        }
+      },
+      "else": {
+        "properties": {
+          "decided_at": {"type": "string", "format": "date-time"},
+          "approved_by": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  ]
+}

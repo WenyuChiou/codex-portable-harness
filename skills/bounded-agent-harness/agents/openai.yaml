@@ -1,0 +1,6 @@
+interface:
+  display_name: "Bounded Agent Harness"
+  short_description: "Budget subagents, checkpoints, retries, and loops"
+  default_prompt: "Use $bounded-agent-harness to coordinate this agent task with explicit budgets and stopping rules."
+policy:
+  allow_implicit_invocation: true

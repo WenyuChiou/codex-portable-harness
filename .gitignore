@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+host.local.json
+generated/
+artifacts/
+*.log
+*.sqlite
+*.sqlite-*
+.env
+.env.*

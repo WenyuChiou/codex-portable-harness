@@ -1,0 +1,6 @@
+interface:
+  display_name: "Adaptive Response"
+  short_description: "Switch between concise, ELI5, and deep explanations"
+  default_prompt: "Use $adaptive-response to explain this at the right level of detail."
+policy:
+  allow_implicit_invocation: true

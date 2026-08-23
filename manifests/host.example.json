@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "host_id": "replace-with-local-host-id",
+  "os": "windows",
+  "shell": "powershell",
+  "path_style": "windows",
+  "sandbox": "unknown",
+  "pty": true,
+  "gui": true,
+  "roots": {
+    "codex_home": "${CODEX_HOME}"
+  },
+  "available_tools": []
+}
