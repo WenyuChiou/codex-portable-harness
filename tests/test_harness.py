@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -16,6 +18,8 @@ import bootstrap  # noqa: E402
 import doctor  # noqa: E402
 import memory_proposal  # noqa: E402
 import policy_engine  # noqa: E402
+from agent_collab_harness import evaluate_policy, sign_human_record, validate_policy  # noqa: E402
+from agent_collab_harness.errors import HarnessValidationError  # noqa: E402
 from common import load_json  # noqa: E402
 
 
@@ -85,11 +89,61 @@ class PolicyTests(unittest.TestCase):
         checkpoint = self.checkpoint(no_evidence_cycles=2)
         self.assertEqual(policy_engine.evaluate(checkpoint, self.policy)["decision"], "stop")
 
-    def test_override_requires_reason(self) -> None:
+    def test_legacy_unsigned_override_fails_closed(self) -> None:
         checkpoint = self.checkpoint()
-        checkpoint["override"] = {"reason": "", "limits": {"max_tool_calls": 100}}
-        with self.assertRaises(ValueError):
+        checkpoint["override"] = {"reason": "approved", "limits": {"max_tool_calls": 100}}
+        with self.assertRaises(HarnessValidationError):
             policy_engine.evaluate(checkpoint, self.policy)
+
+    def test_adapter_matches_public_policy_decision(self) -> None:
+        legacy = self.checkpoint(tool_calls=7, transcript_bytes=1024)
+        public = policy_engine.normalize_checkpoint(legacy, self.policy)
+        self.assertEqual(
+            policy_engine.evaluate(legacy, self.policy),
+            evaluate_policy(public, self.policy).to_dict(),
+        )
+
+    def test_legacy_checkpoint_accepts_public_policy_shape(self) -> None:
+        public_policy = validate_policy(self.policy)
+        result = policy_engine.evaluate(self.checkpoint(tool_calls=7), public_policy)
+        self.assertEqual(result["decision"], "continue")
+        self.assertEqual(result["policy_id"], "portable-harness-agent-budget-v1")
+
+    def test_valid_signed_public_override_is_delegated(self) -> None:
+        key_id = "operator"
+        secret = "test-only-signing-secret"
+        action_hash = "a" * 64
+        public_policy = validate_policy(self.policy)
+        public_policy["human_authorization"]["key_hashes"] = {
+            key_id: hashlib.sha256(secret.encode("utf-8")).hexdigest()
+        }
+        checkpoint = policy_engine.normalize_checkpoint(
+            self.checkpoint(tool_calls=7), public_policy
+        )
+        checkpoint["pending_action_hash"] = action_hash
+        override = {
+            "limit": "max_tool_calls",
+            "value": 100,
+            "reason": "approved test extension",
+            "actor": f"human:{key_id}",
+            "timestamp": "2026-08-31T12:00:00Z",
+            "affected_action_hash": action_hash,
+            "observed_value": 7,
+            "authorization": {
+                "scheme": "hmac-sha256",
+                "key_id": key_id,
+                "signature": "0" * 64,
+            },
+        }
+        override["authorization"]["signature"] = sign_human_record(override, secret)
+        checkpoint["overrides"] = [override]
+        with mock.patch.dict(
+            os.environ,
+            {"AGENT_COLLAB_HUMAN_KEYS_JSON": json.dumps({key_id: secret})},
+        ):
+            result = policy_engine.evaluate(checkpoint, public_policy)
+        self.assertEqual(result["decision"], "continue")
+        self.assertEqual(result["effective_limits"]["max_tool_calls"], 100)
 
     def test_spawn_is_blocked_at_child_limit(self) -> None:
         checkpoint = self.checkpoint(children_spawned=4)
@@ -138,11 +192,45 @@ class PolicyTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.returncode, 4)
             self.assertEqual(json.loads(result.stdout)["decision"], "stop")
+
+    def test_invalid_cli_checkpoint_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint_path = Path(temporary) / "checkpoint.json"
+            checkpoint_path.write_text(json.dumps({"metrics": {}}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "policy_engine.py"), "evaluate", str(checkpoint_path)],
+                capture_output=True,
+                text=True,
+            )
+            decision = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 4)
+            self.assertEqual(decision["decision"], "stop")
+            self.assertFalse(decision["spawn_allowed"])
+
+    def test_policy_cli_uses_checkpoint_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint_path = Path(temporary) / "checkpoint.json"
+            checkpoint_path.write_text(
+                json.dumps(self.checkpoint(transcript_bytes=26 * 1024 * 1024)),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "policy_engine.py"), "evaluate", str(checkpoint_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertEqual(json.loads(result.stdout)["decision"], "checkpoint")
 
 
 class DoctorTests(unittest.TestCase):
+    def test_public_harness_contract_is_available(self) -> None:
+        finding = doctor.check_public_harness()[0]
+        self.assertEqual(finding.status, "PASS")
+        self.assertIn("0.4.0", finding.detail)
+
     def test_short_prefix_inside_normal_word_is_not_secret(self) -> None:
         self.assertFalse(doctor.contains_secret("--task-id task-1"))
 

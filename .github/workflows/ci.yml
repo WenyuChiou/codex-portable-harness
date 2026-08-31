@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: ${{ matrix.python }}
+      - name: Install released public harness contract
+        run: python -m pip install .
       - name: Compile
         run: python -m compileall -q scripts tests
       - name: Test
