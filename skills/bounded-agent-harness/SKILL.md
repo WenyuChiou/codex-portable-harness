@@ -15,7 +15,8 @@ than full history unless full context is essential and explicitly justified.
 
 Before every spawn and after every plan–act–reflect cycle, update a
 `TaskCheckpoint` with evidence references, child counts, context sizes, and
-measurable counters. Run `policy_engine.py evaluate`; do not spawn when its
+measurable counters. Run the thin `policy_engine.py evaluate` adapter, which
+delegates to the released `agent-collab-harness` public contract; do not spawn when its
 `spawn_allowed` field is false.
 
 Stop and return control to the parent when the policy engine says `stop`.

@@ -15,11 +15,31 @@ from common import REPO_ROOT, active_codex_home, ensure_within, load_json, sha25
 from validators import validate_host_manifest
 
 
+PUBLIC_HARNESS_VERSION = "0.4.0"
+
+
 @dataclass
 class Finding:
     status: str
     check: str
     detail: str
+
+
+def check_public_harness() -> list[Finding]:
+    try:
+        import agent_collab_harness
+    except ImportError as exc:
+        return [Finding("FAIL", "public-harness", f"agent-collab-harness unavailable: {exc}")]
+    version = getattr(agent_collab_harness, "__version__", None)
+    if version != PUBLIC_HARNESS_VERSION:
+        return [
+            Finding(
+                "FAIL",
+                "public-harness",
+                f"expected agent-collab-harness {PUBLIC_HARNESS_VERSION}, found {version!r}",
+            )
+        ]
+    return [Finding("PASS", "public-harness", f"agent-collab-harness {version}")]
 
 
 def indexed_texts(root: Path) -> list[tuple[Path, str]]:
@@ -176,7 +196,7 @@ def host_capabilities(home: Path) -> dict[str, object]:
 
 
 def run(home: Path, cross_tool: bool, diff: bool) -> tuple[list[Finding], dict[str, object]]:
-    findings = check_json_documents() + check_repo_content() + check_outer_ignore(home)
+    findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home)
     if diff:
         findings.extend(check_skill_deployment(home))
     if cross_tool:

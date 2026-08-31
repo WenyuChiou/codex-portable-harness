@@ -2,6 +2,12 @@
 name = "codex-portable-harness"
 version = "0.1.0"
 requires-python = ">=3.10"
+dependencies = [
+  "agent-collab-harness @ https://github.com/WenyuChiou/agent-collab-skills/releases/download/v0.4.0/agent_collab_harness-0.4.0-py3-none-any.whl#sha256=991ca9d92ea0efb5a1282a5d616ab84152a7e0ee472af4ed21acb58389ebe22b",
+]
+
+[tool.setuptools]
+packages = []
 
 [tool.unittest]
 start-directory = "tests"

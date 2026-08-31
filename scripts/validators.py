@@ -83,7 +83,8 @@ def validate_host_manifest(document: dict[str, Any]) -> None:
     _unique_strings(document["available_tools"], "available_tools", allow_empty=True)
 
 
-def validate_checkpoint(document: dict[str, Any], terminal_states: list[str]) -> None:
+def validate_legacy_checkpoint(document: dict[str, Any], terminal_states: list[str]) -> None:
+    """Validate the parse-only private checkpoint shape before public conversion."""
     required = {"schema_version", "task_id", "status", "evidence_refs", "metrics"}
     _exact_keys(document, CHECKPOINT_KEYS, required, "checkpoint")
     if document["schema_version"] != 1:
