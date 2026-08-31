@@ -5,8 +5,9 @@ memory proposals, and migration checks. Policy and checkpoint decisions come
 from the released public `agent-collab-harness` contract; this repository does
 not maintain a second policy evaluator.
 
-Requires Python 3.10 or newer and `agent-collab-harness==0.4.0`. Both packages'
-runtime code uses only the standard library.
+Requires Python 3.10 or newer and the SHA-256-pinned `agent-collab-harness`
+v0.4.0 release wheel. Both packages' runtime code uses only the standard
+library.
 
 The repository lives under `~/.codex/portable-harness`, but it is independent
 from Codex runtime state. It never carries credentials, sessions, databases,
