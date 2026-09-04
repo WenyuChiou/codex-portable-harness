@@ -6,7 +6,7 @@ from the released public `agent-collab-harness` contract; this repository does
 not maintain a second policy evaluator.
 
 Requires Python 3.10 or newer and the SHA-256-pinned `agent-collab-harness`
-v0.5.0 release wheel. Both packages' runtime code uses only the standard
+v0.5.1 release wheel. Both packages' runtime code uses only the standard
 library.
 
 The repository lives under `~/.codex/portable-harness`, but it is independent
@@ -47,6 +47,15 @@ V2 retains cumulative usage and returns action/slice/goal scope. An eligible
 slice advances automatically; cancellation, explicit total budgets and genuine
 human gates remain hard. Codex, not this adapter, owns execution and approvals.
 
+Context-only gates request local compaction (checkpoint, scope=action), not
+human approval. Preserve source evidence and failures, measure a smaller active
+packet, then re-evaluate before execution. Pending context maintenance cannot
+be bypassed with slice advance. Explicit legacy migration recognizes only exact
+slice/context budget reasons; ambiguous/human blockers stay stopped. Corrupt
+inputs remain fail closed while the primary agent diagnoses them read-only.
+Neither maintenance nor waiting alone is a reason to ask the user to continue.
+Synthetic replay tests do not establish a real-task human-intervention rate.
+
 Model mapping is defined only in `policies/model-routing.json`; agent files must
 match it. Planning prohibits implementation. Review/governance stays with the
 parent; independent review uses another context. Economical routing is disabled
@@ -71,6 +80,6 @@ Standalone-agent fields follow the
 [official Codex subagent contract](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 New sessions load deployed definitions; old sessions must recheck loaded policy
 and skill versions before resuming. See the shared package's
-[0.5 migration contract](https://github.com/WenyuChiou/agent-collab-skills/blob/v0.5.0/docs/migration-0.5.md)
+[0.5 migration contract](https://github.com/WenyuChiou/agent-collab-skills/blob/v0.5.1/docs/migration-0.5.md)
 for signed gates, scoped decisions and rollback. A v2 record must never be
 downgraded to erase accepted work or cumulative usage.

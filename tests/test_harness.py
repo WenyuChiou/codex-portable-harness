@@ -230,7 +230,7 @@ class DoctorTests(unittest.TestCase):
     def test_public_harness_contract_is_available(self) -> None:
         finding = doctor.check_public_harness()[0]
         self.assertEqual(finding.status, "PASS")
-        self.assertIn("0.5.0", finding.detail)
+        self.assertIn("0.5.1", finding.detail)
 
     def test_short_prefix_inside_normal_word_is_not_secret(self) -> None:
         self.assertFalse(doctor.contains_secret("--task-id task-1"))

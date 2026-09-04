@@ -26,6 +26,23 @@ auto_continue=true means save and call the adapter's `advance`, then continue
 the same authorized objective without asking for a human override. Other
 checkpoint decisions require evidence or compaction before re-evaluation.
 
+For context_compaction_required, perform safe local maintenance without asking
+the user to renew authorization. Preserve full source artifacts, accepted
+evidence, unresolved failures, and human decisions; create a smaller linked
+packet or use native compaction. Record measured active context sizes and
+re-evaluate before execution/spawn. Do not merely zero observations or advance
+a slice to bypass context limits. Cumulative usage and failure history persist.
+If policy/checkpoint parsing fails, stop governed execution, diagnose read-only,
+and recover only from verified state; never invent authorization or clear an
+ambiguous legacy blocker. Escalate only when no safe in-scope next step remains.
+
+Do not end a task merely to ask "continue?" after routine maintenance, a review
+correction, or an eligible slice boundary. A scoped action stop does not stop
+independent safe work. Waiting uses the native wait/monitor mechanism, not a
+busy retry loop. Record real human interventions separately from automatic
+recovery and external waiting; report measured rates, not synthetic success as
+live-task evidence. Native limits and genuine authorization gates still win.
+
 The shared package owns accounting, not execution. Codex owns the goal loop,
 subagents, sandbox, and approvals. Never start a separate process manager or
 background schedule merely because this skill is active.
