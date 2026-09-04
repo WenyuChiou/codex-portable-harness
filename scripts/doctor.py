@@ -16,7 +16,7 @@ from common import REPO_ROOT, active_codex_home, ensure_within, load_json, sha25
 from validators import validate_host_manifest
 
 
-PUBLIC_HARNESS_VERSION = "0.5.0"
+PUBLIC_HARNESS_VERSION = "0.5.1"
 
 
 @dataclass

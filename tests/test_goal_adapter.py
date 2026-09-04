@@ -18,6 +18,28 @@ import test_harness  # noqa: E402
 
 
 class GoalAdapterTests(unittest.TestCase):
+    def test_context_recovery_uses_public_contract_without_resetting_totals(self):
+        p = load_json(ROOT / "policies" / "agent-budget.yaml")
+        old = test_harness.PolicyTests().checkpoint(
+            cycles=3, tool_calls=75,
+            transcript_bytes=p["base_policy"]["limits"]["max_transcript_bytes"],
+        )
+        old["evidence_refs"] = ["test:passed"]
+        state = new_goal(policy_engine.normalize_checkpoint(old, p),
+                         goal_id="existing", next_step="verify")
+        result = policy_engine.evaluate(state, p)
+        self.assertEqual((result["decision"], result["scope"]), ("checkpoint", "action"))
+        self.assertFalse(result["auto_continue"])
+        self.assertFalse(result["spawn_allowed"])
+        self.assertIn("context_compaction_required", result["reasons"])
+        before = dict(state["totals"])
+        state["task"]["transcript_bytes"] = 0  # Measured fixture packet after compaction.
+        self.assertTrue(policy_engine.evaluate(state, p)["auto_continue"])
+        advanced = advance_checkpoint(state, p, request_id="after-compaction")
+        self.assertEqual(advanced["totals"], before)
+        state["requires_human"] = True
+        self.assertEqual(policy_engine.evaluate(state, p)["scope"], "goal")
+
     def test_v1_remains_stopped_and_v2_continues(self):
         p = load_json(ROOT / "policies" / "agent-budget.yaml")
         old = test_harness.PolicyTests().checkpoint(
