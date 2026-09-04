@@ -19,11 +19,56 @@ measurable counters. Run the thin `policy_engine.py evaluate` adapter, which
 delegates to the released `agent-collab-harness` public contract; do not spawn when its
 `spawn_allowed` field is false.
 
-Stop and return control to the parent when the policy engine says `stop`.
-Checkpoint and compact when it says `checkpoint`. A loop counts as progress only
-when it adds a verifiable artifact, test result, source, decision, or blocker.
+For v2, obey decision scope. `stop` with scope=action stops that action, not
+safe primary-agent diagnosis. A goal stop preserves cancellation, explicit hard
+budgets, or an authorization gate. `checkpoint` with scope=slice and
+auto_continue=true means save and call the adapter's `advance`, then continue
+the same authorized objective without asking for a human override. Other
+checkpoint decisions require evidence or compaction before re-evaluation.
 
-Budget overrides must be declared before exceeding a limit and include a reason.
+The shared package owns accounting, not execution. Codex owns the goal loop,
+subagents, sandbox, and approvals. Never start a separate process manager or
+background schedule merely because this skill is active.
+
+Existing v1 checkpoints retain their old behavior. Explicitly migrate to a new
+file with `policy_engine.py migrate OLD --metadata REQUEST --output NEW`.
+REQUEST contains goal_id and next_step as JSON. Keep OLD read-only. Use
+`policy_engine.py advance PATH --request-id ID --expected-sha256 HASH` for an
+eligible v2 slice; reuse ID after uncertain completion. HASH covers file bytes.
+Read the installed shared package's v2 contract when constructing checkpoints.
+
+Track absolute slice metrics plus cumulative totals, accepted evidence, failure
+history, and next step. Never reset totals on a session, model, or slice change.
+Use actual observations; unavailable cost/tokens are unknown, not zero. Honor
+the stricter explicit user/native limit without inventing a new total cap.
+Completion requires acceptance evidence, not budget exhaustion or tool failure.
+
+Before useful independent delegation, call
+`route_execution.py select --task-class CLASS` with current model availability.
+Trivial/coherent work stays with the parent. Planning permits read-only
+exploration, not implementation. Governance/security/final judgments stay with
+the parent; required reviewers use a separate context and inherit its model.
+Economical routes require validated host-local evidence and an enabled rollout;
+experimental routing is for explicit evaluation only. Preserve service tier.
+Log model, effort, reason, expected evidence, and unavailable-model decisions.
+Never switch models to bypass a platform or permission refusal.
+
+Use the smaller native/policy concurrency cap, release active capacity when a
+child finishes, and reserve capacity for required review. Do not spawn just to
+use multiple models. Agent boundaries alone do not require commits. Reuse tests
+and review evidence only when their relevant inputs and requirements match.
+
+True budget exceptions require the existing trusted-host authorization mechanism;
+ordinary slice advances do not. Never mint a human signature as an agent.
+Same-action retry exhaustion permits diagnosis, not blind repetition. Stable
+failure identity covers operation, target, relevant inputs/version, and error
+class. Only a evidenced correction or changed external state permits a bounded
+new attempt, retaining prior failures. Waiting for CI is not a retry failure.
+
+Work autonomously within the current authorization, including routine reversible
+changes and authorized delivery. Preserve valid authorization across sessions.
+Stop for concrete irreversible/high-impact actions outside that authorization,
+material scope expansion, or a user decision that cannot safely be inferred.
 Never silently retry, silently switch models, silently discard context, or treat
 memory as more authoritative than current user instructions and repository state.
 

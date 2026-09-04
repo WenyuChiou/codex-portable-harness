@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "tested_cli_baseline": "0.153.3",
+  "economical_routing_default_enabled": false,
+  "minimum_attestation": {
+    "paired_runs": 8,
+    "quality_checks": 8,
+    "lifetime_days": 30,
+    "minimum_cost_or_comparable_token_improvement_percent": 15,
+    "maximum_wall_time_regression_percent": 15
+  },
+  "service_tier": "unchanged",
+  "independent_reviewer": "inherit-parent",
+  "routes": {
+    "mechanical": {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "role": "portable-mechanical"
+    },
+    "exploration": {
+      "model": "gpt-5.6-terra",
+      "effort": "medium",
+      "role": "portable-explorer"
+    },
+    "implementation": {
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "role": "portable-worker"
+    }
+  },
+  "direct_categories": [
+    "trivial",
+    "governance",
+    "security",
+    "review"
+  ]
+}
