@@ -3,7 +3,7 @@ name = "codex-portable-harness"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
-  "agent-collab-harness @ https://github.com/WenyuChiou/agent-collab-skills/releases/download/v0.4.0/agent_collab_harness-0.4.0-py3-none-any.whl#sha256=991ca9d92ea0efb5a1282a5d616ab84152a7e0ee472af4ed21acb58389ebe22b",
+  "agent-collab-harness @ https://github.com/WenyuChiou/agent-collab-skills/releases/download/v0.5.0/agent_collab_harness-0.5.0-py3-none-any.whl#sha256=886cd1432b8ef100c8f0a5730eeebe849a05eeae6afe0c91c9fc6259c160a8d0",
 ]
 
 [tool.setuptools]

@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -15,7 +16,7 @@ from common import REPO_ROOT, active_codex_home, ensure_within, load_json, sha25
 from validators import validate_host_manifest
 
 
-PUBLIC_HARNESS_VERSION = "0.4.0"
+PUBLIC_HARNESS_VERSION = "0.5.0"
 
 
 @dataclass
@@ -39,7 +40,11 @@ def check_public_harness() -> list[Finding]:
                 f"expected agent-collab-harness {PUBLIC_HARNESS_VERSION}, found {version!r}",
             )
         ]
-    return [Finding("PASS", "public-harness", f"agent-collab-harness {version}")]
+    from agent_collab_harness.doctor import run_doctor
+    result = run_doctor()
+    if result["status"] != "ok":
+        return [Finding("FAIL", "public-harness", "shared package schema or configuration failure")]
+    return [Finding("PASS", "public-harness", f"agent-collab-harness {version}; schemas loaded")]
 
 
 def indexed_texts(root: Path) -> list[tuple[Path, str]]:
@@ -83,6 +88,9 @@ def check_json_documents() -> list[Finding]:
     for path in required:
         try:
             document = load_json(path)
+            if path.name == "agent-budget.yaml":
+                from agent_collab_harness import validate_policy
+                validate_policy(document)
             if path.name == "host.example.json":
                 validate_host_manifest(document)
             findings.append(Finding("PASS", "structured-data", str(path.relative_to(REPO_ROOT))))
@@ -123,7 +131,8 @@ def contains_secret(text: str) -> bool:
 
 
 def check_outer_ignore(home: Path) -> list[Finding]:
-    probe_paths = [home / "auth.json", home / "sessions" / "probe.json", home / "state_5.sqlite", home / "config.toml"]
+    probe_paths = [home / "auth.json", home / "sessions" / "probe.json", home / "state_5.sqlite", home / "config.toml",
+                   home / "harness-runs" / "probe.json", home / "harness-attestations" / "probe.json"]
     outer = home.parent
     try:
         subprocess.run(["git", "-C", str(outer), "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True)
@@ -176,6 +185,48 @@ def check_exports() -> list[Finding]:
     return [Finding("FAIL" if invalid else "PASS", "cross-tool-exports", ", ".join(invalid) if invalid else "proposal-only exports present")]
 
 
+def check_agent_configuration() -> list[Finding]:
+    """Check our deliberately small standalone-agent subset on Python 3.10+."""
+    try:
+        policy = load_json(REPO_ROOT / "policies" / "model-routing.json")
+        for route in policy["routes"].values():
+            path = REPO_ROOT / "agents" / (route["role"] + ".toml")
+            text = path.read_text(encoding="utf-8")
+            for key, expected in (("name", route["role"]), ("model", route["model"]),
+                                  ("model_reasoning_effort", route["effort"])):
+                found = re.findall(r'^' + re.escape(key) + r'\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE)
+                if found != [expected]:
+                    raise ValueError(f"{path.name}: {key} differs from canonical routing")
+            if re.search(r"^(?:service_tier|approval_policy)\s*=", text, re.MULTILINE):
+                raise ValueError(f"{path.name}: forbidden tier/approval override")
+            if 'developer_instructions = """' not in text:
+                raise ValueError(f"{path.name}: missing instructions")
+        return [Finding("PASS", "agent-model-config", "three agents match canonical routes; no tier or approval overrides")]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [Finding("FAIL", "agent-model-config", str(exc))]
+
+
+def check_cli_compatibility(command: str = "codex") -> list[Finding]:
+    """Report version preflight, never mistake it for a model/network canary."""
+    executable = shutil.which(command)
+    if executable is None:
+        return [Finding("WARN", "codex-cli", "CLI not found; native model canary still required")]
+    try:
+        result = subprocess.run([executable, "--version"], capture_output=True,
+                                text=True, timeout=10, check=True)
+        match = re.search(r"\bcodex-cli (\d+)\.(\d+)\.(\d+)\b", result.stdout)
+        if match is None:
+            raise ValueError("unrecognized Codex CLI version output")
+        found = tuple(int(part) for part in match.groups())
+        baseline = load_json(REPO_ROOT / "policies" / "model-routing.json")["tested_cli_baseline"]
+        tested = tuple(int(part) for part in baseline.split("."))
+        if found < tested:
+            return [Finding("WARN", "codex-cli", f"{match.group(0)} is older than tested baseline {baseline}; upgrade and run the same-model canary before claiming compatibility")]
+        return [Finding("PASS", "codex-cli", f"{match.group(0)} meets tested version baseline; model availability still requires native canary")]
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+        return [Finding("WARN", "codex-cli", f"compatibility unverified: {exc}")]
+
+
 def host_capabilities(home: Path) -> dict[str, object]:
     system = platform.system().lower()
     os_name = "windows" if system == "windows" else "macos" if system == "darwin" else "linux"
@@ -195,8 +246,8 @@ def host_capabilities(home: Path) -> dict[str, object]:
     return capabilities
 
 
-def run(home: Path, cross_tool: bool, diff: bool) -> tuple[list[Finding], dict[str, object]]:
-    findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home)
+def run(home: Path, cross_tool: bool, diff: bool, *, codex: str = "codex") -> tuple[list[Finding], dict[str, object]]:
+    findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home) + check_agent_configuration() + check_cli_compatibility(codex)
     if diff:
         findings.extend(check_skill_deployment(home))
     if cross_tool:
@@ -209,9 +260,10 @@ def main() -> int:
     parser.add_argument("--cross-tool", action="store_true")
     parser.add_argument("--diff", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--codex", default="codex", help="CLI executable for version preflight only")
     args = parser.parse_args()
     home = active_codex_home()
-    findings, capabilities = run(home, args.cross_tool, args.diff)
+    findings, capabilities = run(home, args.cross_tool, args.diff, codex=args.codex)
     if args.json:
         print(json.dumps({"findings": [asdict(item) for item in findings], "host": capabilities}, ensure_ascii=False, indent=2))
     else:

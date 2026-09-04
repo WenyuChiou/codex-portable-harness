@@ -37,7 +37,8 @@ class BootstrapTests(unittest.TestCase):
             bootstrap.deploy(home, apply=True, allow_test_root=True)
             deployed = sorted(path.relative_to(home).as_posix() for path in home.rglob("*") if path.is_file())
             self.assertTrue(deployed)
-            self.assertTrue(all(path.startswith("skills/adaptive-response/") or path.startswith("skills/bounded-agent-harness/") for path in deployed))
+            allowed = ("skills/adaptive-response/", "skills/bounded-agent-harness/", "agents/", "portable-harness/bootstrap-ownership.json")
+            self.assertTrue(all(path.startswith(allowed) for path in deployed))
 
     def test_apply_rejects_non_codex_product_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -50,7 +51,7 @@ class BootstrapTests(unittest.TestCase):
 
 class PolicyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.policy = load_json(ROOT / "policies" / "agent-budget.yaml")
+        self.policy = load_json(ROOT / "policies" / "agent-budget.yaml")["base_policy"]
 
     def checkpoint(self, **metrics: int) -> dict[str, object]:
         defaults = {
@@ -156,7 +157,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy_engine.evaluate(checkpoint, self.policy)["decision"], "stop")
 
     def test_every_terminal_state_stops_and_blocks_spawn(self) -> None:
-        for state in self.policy["terminal_states"]:
+        for state in policy_engine.LEGACY_TERMINAL_STATES:
             with self.subTest(state=state):
                 checkpoint = self.checkpoint()
                 checkpoint["status"] = state
@@ -229,7 +230,7 @@ class DoctorTests(unittest.TestCase):
     def test_public_harness_contract_is_available(self) -> None:
         finding = doctor.check_public_harness()[0]
         self.assertEqual(finding.status, "PASS")
-        self.assertIn("0.4.0", finding.detail)
+        self.assertIn("0.5.0", finding.detail)
 
     def test_short_prefix_inside_normal_word_is_not_secret(self) -> None:
         self.assertFalse(doctor.contains_secret("--task-id task-1"))

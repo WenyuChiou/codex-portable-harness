@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"case_id":"mechanical-1","task_type":"mechanical","prompt":"In records.json, rename every object key old_label to new_label without changing values or object order.","files":{"records.json":"[{\"old_label\":\"alpha\",\"count\":1},{\"old_label\":\"beta\",\"count\":2}]\n"}},
+    {"case_id":"mechanical-2","task_type":"mechanical","prompt":"In settings.json, change each enabled string value to a JSON boolean while preserving all other fields.","files":{"settings.json":"{\"first\":{\"enabled\":\"true\"},\"second\":{\"enabled\":\"false\"}}\n"}},
+    {"case_id":"exploration-1","task_type":"read_only_exploration","prompt":"Read the fixture and report which module calls parse_record; do not modify files.","files":{"module.py":"def parse_record(value):\n    return value.strip()\n\ndef load(value):\n    return parse_record(value)\n"}},
+    {"case_id":"exploration-2","task_type":"read_only_exploration","prompt":"Read the fixture and report the configuration key that controls retries; do not modify files.","files":{"config.json":"{\"execution\":{\"retry_limit\":2},\"display\":{\"theme\":\"dark\"}}\n"}},
+    {"case_id":"implementation-1","task_type":"multifile_implementation","prompt":"Add slug validation consistently to validator.py, service.py, and their tests using the existing patterns.","files":{"validator.py":"def valid_name(value):\n    return bool(value.strip())\n","service.py":"from validator import valid_name\n","test_service.py":"def test_name():\n    assert True\n"}},
+    {"case_id":"implementation-2","task_type":"multifile_implementation","prompt":"Add JSON export consistently across model.py, export.py, and test_export.py using the existing data shape.","files":{"model.py":"class Item:\n    pass\n","export.py":"def export(item):\n    raise NotImplementedError\n","test_export.py":"def test_export():\n    assert True\n"}},
+    {"case_id":"correction-1","task_type":"interrupted_review_correction","prompt":"Apply the recorded review correction: reject empty identifiers while preserving whitespace inside nonempty identifiers.","files":{"validator.py":"def valid_id(value):\n    return isinstance(value, str)\n","REVIEW.txt":"Reject empty identifiers; do not strip or rewrite accepted values.\n"}},
+    {"case_id":"correction-2","task_type":"interrupted_review_correction","prompt":"Apply the recorded review correction: make save failure explicit and preserve the original exception as the cause.","files":{"storage.py":"def save(writer, value):\n    writer(value)\n","REVIEW.txt":"Wrap save errors with StorageError and preserve exception chaining.\n"}}
+  ]
+}
