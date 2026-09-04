@@ -308,7 +308,10 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(result["gate"]["promotable"])
 
     def test_gate_is_exploratory_only_and_never_promotable(self):
-        result = self.evaluation()
+        # Test gate logic with equal synthetic durations, not host scheduling
+        # noise from sub-millisecond fake model calls. This is not live evidence.
+        with mock.patch.object(benchmark.time, "monotonic", side_effect=(float(n) for n in range(32))):
+            result = self.evaluation()
         self.assertTrue(result["gate"]["exploratory_pass"])
         self.assertFalse(result["gate"]["promotable"])
         result["runs"][0]["valid"] = False

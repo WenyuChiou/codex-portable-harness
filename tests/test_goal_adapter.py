@@ -37,7 +37,9 @@ class GoalAdapterTests(unittest.TestCase):
 
     def test_legacy_migration_cli_preserves_source(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # macOS /var is an OS alias: use the real fixture root, without
+            # relaxing production rejection of symlinked checkpoint paths.
+            root = Path(tmp).resolve()
             old = root / "old.json"
             meta = root / "meta.json"
             new = root / "new.json"
