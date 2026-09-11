@@ -140,6 +140,10 @@ def route_execution(
     available_models: Iterable[str] = (),
     experimental: bool = False,
     permission_denied: bool = False,
+    parent_model: str | None = None,
+    escalation_reason: str | None = None,
+    evidence_refs: Iterable[str] = (),
+    computer_use_available: bool = False,
     host_id: str | None = None,
     attestation: dict[str, Any] | None = None,
     current_policy_sha256: str | None = None,
@@ -168,6 +172,42 @@ def route_execution(
             **direct,
             "action": "plan_only",
             "reason": "plan mode prohibits write-task dispatch",
+        }
+    if escalation_reason is not None:
+        # Quality escalation is an explicit routing preference, not evidence of
+        # economical rollout, model superiority, or permission to execute.
+        escalation = policy.get("quality_escalation", {})
+        evidence = list(evidence_refs)
+        if category in {"trivial", "governance", "security"}:
+            return {**direct, "action": "parent", "reason": f"{category} ownership remains with the parent; use a bounded review task for independent advice"}
+        allowed = escalation.get("reasons", {}).get(escalation_reason, ())
+        missing = None
+        if escalation.get("enabled") is not True:
+            missing = "quality escalation is not enabled"
+        elif category not in allowed:
+            missing = "escalation reason does not permit this task class"
+        elif not isinstance(parent_model, str) or not parent_model.strip():
+            missing = "quality escalation requires the actual parent model"
+        elif not evidence or any(not isinstance(ref, str) or not ref.strip() for ref in evidence):
+            missing = "quality escalation requires bounded evidence references"
+        elif escalation_reason == "complex_computer_use" and computer_use_available is not True:
+            missing = "computer-use tools and the intended surface must be available to the child"
+        if missing:
+            return {**direct, "action": "parent_decides", "reason": missing}
+        if parent_model == escalation["model"]:
+            return {**direct, "action": "parent", "reason": "parent already uses the escalation model; independent review may still use another context"}
+        if escalation["model"] not in available:
+            return {**direct, "action": "parent_decides", "reason": f"required model {escalation['model']} is unavailable; no silent fallback"}
+        return {
+            **direct,
+            "model": escalation["model"],
+            "effort": escalation["effort"],
+            "role": escalation["review_role"] if category == "review" else escalation["role"],
+            "action": "evaluation_only" if experimental else "dispatch",
+            "reason": "explicit bounded quality escalation; host permissions and checkpoint gates still apply",
+            "escalation_reason": escalation_reason,
+            "evidence_refs": evidence,
+            "routing_only_not_execution_authorization": True,
         }
     if category in policy["direct_categories"] or category not in policy["routes"]:
         return {
@@ -238,6 +278,11 @@ def main() -> int:
         help="Select an evaluation-only route; never authorizes dispatch.",
     )
     parser.add_argument("--permission-denied", action="store_true")
+    parser.add_argument("--parent-model")
+    parser.add_argument("--escalation-reason")
+    parser.add_argument("--evidence-ref", action="append", default=[])
+    parser.add_argument("--computer-use-available", action="store_true",
+                        help="Assert the child has the required tools and intended surface; does not grant access.")
     parser.add_argument("--attestation", type=Path)
     parser.add_argument("--host-id")
     parser.add_argument("--current-policy-sha256")
@@ -266,6 +311,10 @@ def main() -> int:
         available_models=args.available_model,
         experimental=args.experimental,
         permission_denied=args.permission_denied,
+        parent_model=args.parent_model,
+        escalation_reason=args.escalation_reason,
+        evidence_refs=args.evidence_ref,
+        computer_use_available=args.computer_use_available,
         attestation=attestation,
         host_id=args.host_id,
         current_policy_sha256=args.current_policy_sha256,

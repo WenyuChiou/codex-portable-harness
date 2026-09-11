@@ -12,6 +12,25 @@
   },
   "service_tier": "unchanged",
   "independent_reviewer": "inherit-parent",
+  "primary_preference": {
+    "model": "gpt-5.6-sol",
+    "effort": "medium",
+    "changes_host_model_setting": false
+  },
+  "quality_escalation": {
+    "enabled": true,
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "role": "default",
+    "review_role": "code-reviewer",
+    "reasons": {
+      "research_methodology": ["exploration", "review"],
+      "architecture_tradeoff": ["exploration", "review"],
+      "complex_debugging": ["exploration", "implementation", "review"],
+      "high_risk_review": ["review"],
+      "complex_computer_use": ["exploration", "implementation"]
+    }
+  },
   "routes": {
     "mechanical": {
       "model": "gpt-5.6-luna",

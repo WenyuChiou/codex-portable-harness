@@ -57,11 +57,17 @@ Neither maintenance nor waiting alone is a reason to ask the user to continue.
 Synthetic replay tests do not establish a real-task human-intervention rate.
 
 Model mapping is defined only in `policies/model-routing.json`; agent files must
-match it. Planning prohibits implementation. Review/governance stays with the
+match it. Planning prohibits implementation. Governance stays with the
 parent; independent review uses another context. Economical routing is disabled
 by default pending complete quality and efficiency evidence. Explicit experimental
 selection is evaluation-only and cannot authorize normal dispatch. Unknown cost
 is null, not zero. No speed/cost improvement is claimed by this release.
+
+The user-selected primary preference and explicit quality escalation are separate
+from economical rollout. An evidence-bound difficult task can select the configured
+escalation model even while automatic economical routing remains disabled.
+The router does not switch the host model, provide computer-use access, or authorize
+execution. See [model routing](docs/MODEL_ROUTING.md) for triggers and usage.
 
 `benchmark_autonomy.py` currently supports offline evaluator testing only. It
 cannot measure the native host's full planning/delegation/review lifecycle and

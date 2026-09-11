@@ -64,6 +64,83 @@ def routed(category="mechanical", *, policy=None, evidence=None, **changes):
 
 
 class RoutingTests(unittest.TestCase):
+    def escalated(self, category="exploration", **changes):
+        args = {
+            "parent_model": "gpt-5.6-sol",
+            "escalation_reason": "research_methodology",
+            "evidence_refs": ["decision-record:metric-ambiguity"],
+            "available_models": ["gpt-5.6-sol", "gpt-6-astra"],
+        }
+        args.update(changes)
+        return route_execution.route_execution(category, **args)
+
+    def test_primary_preference_does_not_change_current_parent(self):
+        policy = load_json(ROOT / "policies" / "model-routing.json")
+        self.assertEqual(policy["primary_preference"]["model"], "gpt-5.6-sol")
+        self.assertFalse(policy["primary_preference"]["changes_host_model_setting"])
+        result = route_execution.route_execution("exploration", parent_model="gpt-5.6-sol")
+        self.assertEqual((result["action"], result["model"]), ("parent", None))
+
+    def test_explicit_quality_escalation_is_separate_from_economic_proof(self):
+        result = self.escalated()
+        self.assertEqual((result["action"], result["model"], result["effort"]),
+                         ("dispatch", "gpt-6-astra", "high"))
+        self.assertEqual(result["service_tier"], "unchanged")
+        self.assertTrue(result["routing_only_not_execution_authorization"])
+        self.assertEqual(result["evidence_refs"], ["decision-record:metric-ambiguity"])
+
+    def test_quality_escalation_preserves_permission_and_plan_gates(self):
+        self.assertEqual(self.escalated(permission_denied=True)["action"], "blocked")
+        self.assertEqual(self.escalated("implementation", mode="plan",
+                                       escalation_reason="complex_debugging")["action"], "plan_only")
+        self.assertEqual(self.escalated(mode="plan")["action"], "dispatch")
+
+    def test_escalation_does_not_delegate_governance_or_security_ownership(self):
+        for category in ("governance", "security", "trivial"):
+            self.assertEqual(self.escalated(category)["action"], "parent")
+        result = self.escalated("review", escalation_reason="high_risk_review")
+        self.assertEqual((result["action"], result["role"]), ("dispatch", "code-reviewer"))
+
+    def test_quality_escalation_needs_parent_evidence_and_valid_scope(self):
+        for changes in ({"parent_model": None}, {"parent_model": " "},
+                        {"evidence_refs": []}, {"evidence_refs": [""]},
+                        {"evidence_refs": [None]}, {"escalation_reason": "routine_lookup"}):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.escalated(**changes)["action"], "parent_decides")
+        self.assertEqual(self.escalated("implementation")["action"], "parent_decides")
+
+    def test_quality_escalation_can_be_disabled_and_never_falls_back_silently(self):
+        policy = load_json(ROOT / "policies" / "model-routing.json")
+        policy["quality_escalation"]["enabled"] = False
+        self.assertEqual(self.escalated(policy=policy)["action"], "parent_decides")
+        self.assertEqual(self.escalated(available_models=["gpt-5.6-sol"])["action"], "parent_decides")
+
+    def test_parent_already_using_astra_does_not_trigger_extra_escalation(self):
+        self.assertEqual(self.escalated(parent_model="gpt-6-astra")["action"], "parent")
+
+    def test_complex_computer_use_requires_actual_child_capability(self):
+        for capability in (False, None, "true"):
+            self.assertEqual(self.escalated(escalation_reason="complex_computer_use",
+                                           computer_use_available=capability)["action"], "parent_decides")
+        self.assertEqual(self.escalated(escalation_reason="complex_computer_use",
+                                       computer_use_available=True)["action"], "dispatch")
+        self.assertEqual(self.escalated("implementation", mode="plan",
+                                       escalation_reason="complex_computer_use",
+                                       computer_use_available=True)["action"], "plan_only")
+
+    def test_experimental_quality_selection_stays_evaluation_only(self):
+        self.assertEqual(self.escalated(experimental=True)["action"], "evaluation_only")
+
+    def test_quality_escalation_cli(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / "scripts" / "route_execution.py"),
+            "select", "--task-class", "exploration", "--parent-model", "gpt-5.6-sol",
+            "--escalation-reason", "complex_computer_use", "--evidence-ref", "task:visual-layout",
+            "--computer-use-available", "--available-model", "gpt-6-astra",
+        ], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["action"], "dispatch")
+
     def test_canonical_model_map_and_stable_dispatch(self):
         expected = {
             "mechanical": ("gpt-5.6-luna", "low", "portable-mechanical"),

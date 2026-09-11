@@ -64,11 +64,39 @@ Before useful independent delegation, call
 `route_execution.py select --task-class CLASS` with current model availability.
 Trivial/coherent work stays with the parent. Planning permits read-only
 exploration, not implementation. Governance/security/final judgments stay with
-the parent; required reviewers use a separate context and inherit its model.
+the parent; required reviewers use a separate context and normally inherit its model.
 Economical routes require validated host-local evidence and an enabled rollout;
 experimental routing is for explicit evaluation only. Preserve service tier.
 Log model, effort, reason, expected evidence, and unavailable-model decisions.
 Never switch models to bypass a platform or permission refusal.
+
+The policy's `primary_preference` is guidance for user-selected primary sessions;
+it does not change the host's current model. Explicit `quality_escalation` is
+separate from economical rollout and makes no measured cost or quality claim.
+For a difficult bounded task, call the router with the actual `--parent-model`,
+an allowed `--escalation-reason`, and `--evidence-ref` for the concrete difficulty.
+Use the returned model/effort only when action=dispatch and the checkpoint also
+allows spawning. Missing evidence, tools or model availability requires a parent
+decision, not a silent fallback. A required review may use the escalation model;
+the parent retains scope, permissions, implementation ownership and final judgment.
+
+Do not escalate routine reads, CI polling, straightforward edits, or ordinary
+browser operations. Complex computer use may qualify when visual ambiguity or
+multi-step UI state needs additional judgment; assert `--computer-use-available`
+only after confirming the child can access the needed tools and intended surface.
+Prefer APIs/CLIs when suitable. Transfer exact tab/window references and visible
+state, assign one operator per surface, and preserve all action approval rules.
+If the surface cannot be delegated, keep execution with the capable parent and
+delegate only a bounded read-only assessment. Model choice does not grant tools.
+
+Give an escalation a short focused packet, evidence and a stop condition. Return
+to the primary workflow after its result; do not escalate all later tasks, repeat
+unchanged attempts, or fan out merely because a stronger model is available.
+Read the current checkpoint and its on-disk evidence before composing the packet;
+stale summaries must not duplicate completed work or reopen approved decisions.
+With native `spawn_agent`, apply returned model/effort using `fork_turns="none"`
+and the focused packet, or a bounded positive history count. Full-history forks
+inherit the parent and cannot apply model/effort overrides.
 
 Use the smaller native/policy concurrency cap, release active capacity when a
 child finishes, and reserve capacity for required review. Do not spawn just to
