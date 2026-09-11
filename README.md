@@ -57,7 +57,9 @@ Neither maintenance nor waiting alone is a reason to ask the user to continue.
 Synthetic replay tests do not establish a real-task human-intervention rate.
 
 Model mapping is defined only in `policies/model-routing.json`; agent files must
-match it. Planning prohibits implementation. Governance stays with the
+match it. Planning permits read-only organization and exploration, while
+implementation and state changes remain blocked. Classify task effects separately
+with `--task-effect`; read-only mechanical output stays in the response. Governance stays with the
 parent; independent review uses another context. Daily task-class routing is enabled
 by user preference without benchmark admission. Evidence remains necessary for
 measured quality or efficiency claims. Explicit experimental

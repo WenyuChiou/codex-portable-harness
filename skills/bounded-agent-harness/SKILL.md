@@ -63,7 +63,7 @@ Completion requires acceptance evidence, not budget exhaustion or tool failure.
 Before useful independent delegation, call
 `route_execution.py select --task-class CLASS` with current model availability.
 Trivial/coherent work stays with the parent. Planning permits read-only
-exploration, not implementation. Governance/security/final judgments stay with
+organization and exploration, not implementation. Governance/security/final judgments stay with
 the parent; required reviewers use a separate context and normally inherit its model.
 Daily task routing follows the enabled canonical policy without requiring a
 benchmark attestation. Classify each useful bounded task, then use the returned
@@ -72,6 +72,29 @@ strict attestation mode remains available for evidence-gated dispatch.
 Experimental routing is evaluation-only. Preserve service tier and execution gates.
 Log model, effort, reason, expected evidence, and unavailable-model decisions.
 Never switch models to bypass a platform or permission refusal.
+
+Classify effects separately: pass `--task-effect read-only` for mechanical
+organization of supplied facts, including in Plan; use `write` for any file, UI,
+API or other state change. Omitted mechanical effects conservatively imply writes.
+Carry returned `task_effect` and `read_only_required` into the child packet.
+Read-only mechanical output is response-only, with no writable paths or mutating
+tools; the host enforces these constraints. Routing metadata does not install a
+sandbox. Preserve sources and mark missing facts; new investigation uses exploration,
+while priorities and substantive synthesis stay with the parent. Small coherent
+organization stays local when delegation costs more than doing it directly.
+
+Route across the whole task lifecycle, not only the current mode. In Plan, assign
+each useful independent subtask an intended class, effect, policy-selected model,
+dependencies, deliverable and acceptance check. Include future mechanical edits
+as planned work without executing them. Use the current Plan mode for actual
+dispatch; consult the policy map for future assignments, never fake execution
+mode to select or launch a write task. Provisional escalation still needs its
+reason and evidence before dispatch. After Plan, carry these assignments forward
+and recheck scope, difficulty, availability and effects at each task boundary.
+Reuse valid assignments and accepted results; revise only affected tasks. Do not
+default every execution step to the parent merely because it wrote the plan,
+and do not invoke every model solely to fill a roster. Reclassify a task needing
+more investigation/judgment rather than repeatedly retrying a mismatched worker.
 
 The policy's `primary_preference` is guidance for user-selected primary sessions;
 it does not change the host's current model. Explicit `quality_escalation` is

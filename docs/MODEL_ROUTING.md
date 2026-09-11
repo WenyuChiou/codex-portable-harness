@@ -10,6 +10,27 @@ is useful, automatically classify each bounded task and use the policy's route:
 investigation, and `implementation` for independent changes with clear acceptance.
 Keep trivial work local; never create a child merely to use a different model.
 
+Task class and effect are separate. `mechanical --task-effect read-only` can
+organize supplied facts in Plan or execution mode: sort, group by explicit keys,
+deduplicate exact repeats, or populate a fixed response template. Preserve source
+references and flag omissions. New investigation uses exploration; priorities,
+conflicting interpretations and substantive planning remain with the parent.
+For example, grouping by a supplied priority field is mechanical; deciding that
+priority is not. A small coherent organization task stays local.
+
+```text
+python scripts/route_execution.py select --mode plan --task-class mechanical --task-effect read-only --available-model <available-mechanical-model>
+```
+
+The host must copy `task_effect` and `read_only_required` into the focused packet
+and enforce response-only output, no writable paths and no mutating tools for
+read-only mechanical tasks. This metadata is not a sandbox configuration.
+File edits, UI changes, API mutations and other state changes use `write` and
+remain blocked in Plan. Mechanical calls omitting the effect conservatively
+retain their old write classification. Implementation cannot be relabeled read-only
+to bypass Plan; conflicting classes/effects require reclassification. Permission,
+model availability, checkpoint and experimental-only guards remain unchanged.
+
 Daily routing is enabled by user preference. The policy explicitly sets
 `economical_routing_require_attestation` to false, so missing benchmark evidence
 does not block daily delegation. This is not measured proof of savings or quality.
@@ -23,6 +44,28 @@ model selection is required. A selected model unavailable on the host requires
 an explicit parent decision, not silent substitution or repeated failing attempts.
 Model changes apply to separate bounded children, not in-place switching of the
 main conversation or a running child. Reuse the checkpoint and accepted evidence.
+
+Apply this allocation throughout a single task, including during and after Plan.
+For each useful independent subtask, the plan records its class, effect, intended
+policy-selected model, dependencies, deliverable and acceptance check. A future
+mechanical edit can be assigned in the plan while its execution remains deferred.
+Use the actual Plan mode for live dispatch; read the canonical map to plan future
+assignments, never pass execution mode merely to evade a Plan restriction.
+Intended assignments do not establish dispatch readiness. Missing inputs or an
+escalation's future evidence remain pending until they actually exist.
+
+When execution begins, reuse that allocation and valid findings. Re-evaluate only
+affected task boundaries when scope, difficulty, dependencies or model availability
+change. Straightforward mechanical steps remain eligible for their route even
+though the parent created the plan. Missing facts go to investigation; substantive
+decisions return to the parent or a justified escalation. Do not exhaust retries
+on the wrong task class. The parent integrates and accepts the result.
+
+For example, a feature task may use read-only exploration to locate interfaces,
+mechanical organization to tabulate the findings, parent judgment to choose the
+design, then mechanical edits and independent implementation after Plan. A hard
+architectural question or important review may justify escalation. No task needs
+all models, and a small coherent step can remain inline.
 
 Use a stronger child only for a concrete independent task:
 

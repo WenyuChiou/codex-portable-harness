@@ -233,6 +233,55 @@ class RoutingTests(unittest.TestCase):
         result = routed("implementation", mode="plan")
         self.assertEqual(result["action"], "plan_only")
 
+    def test_plan_allows_explicit_read_only_mechanical_organization(self):
+        for mode in ("plan", "default"):
+            result = route_execution.route_execution(
+                "mechanical", mode=mode, task_effect="read-only", available_models=AVAILABLE)
+            self.assertEqual((result["action"], result["model"], result["role"]),
+                             ("dispatch", "gpt-5.6-luna", "portable-mechanical"))
+            self.assertTrue(result["read_only_required"])
+            self.assertEqual(result["task_effect"], "read-only")
+
+    def test_plan_blocks_mutating_effects_even_if_class_sounds_read_only(self):
+        for category in ("mechanical", "exploration", "review", "trivial"):
+            result = route_execution.route_execution(
+                category, mode="plan", task_effect="write", available_models=AVAILABLE)
+            self.assertEqual(result["action"], "plan_only")
+        self.assertEqual(route_execution.route_execution(
+            "mechanical", mode="plan", available_models=AVAILABLE)["action"], "plan_only")
+        self.assertEqual(route_execution.route_execution(
+            "implementation", mode="plan", task_effect="read-only",
+            available_models=AVAILABLE)["action"], "plan_only")
+
+    def test_effect_conflicts_and_invalid_values_cannot_dispatch(self):
+        for category, effect in (("exploration", "write"), ("review", "write"),
+                                 ("implementation", "read-only"), ("mechanical", "readonly"),
+                                 ("mechanical", False)):
+            self.assertEqual(route_execution.route_execution(
+                category, task_effect=effect, available_models=AVAILABLE)["action"], "parent_decides")
+
+    def test_read_only_plan_mechanical_keeps_other_gates(self):
+        args = dict(mode="plan", task_effect="read-only", available_models=AVAILABLE)
+        self.assertEqual(route_execution.route_execution(
+            "mechanical", permission_denied=True, **args)["action"], "blocked")
+        self.assertEqual(route_execution.route_execution(
+            "mechanical", experimental=True, **args)["action"], "evaluation_only")
+        self.assertEqual(route_execution.route_execution(
+            "mechanical", policy=enabled_policy(), **args)["action"], "parent")
+        args["available_models"] = ["gpt-5.6-sol"]
+        self.assertEqual(route_execution.route_execution("mechanical", **args)["action"], "parent_decides")
+
+    def test_plan_read_only_mechanical_cli(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / "scripts" / "route_execution.py"), "select",
+            "--mode", "plan", "--task-class", "mechanical", "--task-effect", "read-only",
+            "--available-model", "gpt-5.6-luna",
+        ], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual((payload["action"], payload["model"]), ("dispatch", "gpt-5.6-luna"))
+        self.assertTrue(payload["read_only_required"])
+
     def test_permission_denial_is_blocked_not_parent_bypass(self):
         result = routed("exploration", permission_denied=True)
         self.assertEqual(result["action"], "blocked")

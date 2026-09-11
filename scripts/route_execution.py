@@ -137,6 +137,7 @@ def route_execution(
     category: str,
     *,
     mode: str = "default",
+    task_effect: str | None = None,
     available_models: Iterable[str] = (),
     experimental: bool = False,
     permission_denied: bool = False,
@@ -154,12 +155,20 @@ def route_execution(
 ) -> dict[str, Any]:
     policy = policy or load_json(POLICY_PATH)
     available = sorted(set(available_models))
+    # Preserve legacy callers: mechanical/implementation may write unless a
+    # mechanical task is explicitly scoped to read-only output.
+    effect = task_effect if task_effect is not None else {
+        "mechanical": "write", "implementation": "write",
+        "exploration": "read-only", "review": "read-only",
+    }.get(category, "unknown")
     direct = {
         "model": None,
         "effort": None,
         "role": "parent",
         "service_tier": "unchanged",
         "available": available,
+        "task_effect": effect,
+        "read_only_required": effect == "read-only",
     }
     if permission_denied:
         return {
@@ -167,12 +176,18 @@ def route_execution(
             "action": "blocked",
             "reason": "permission denied; model fallback and parent bypass are prohibited",
         }
-    if mode.lower() == "plan" and category in {"mechanical", "implementation"}:
+    if task_effect not in (None, "read-only", "write"):
+        return {**direct, "action": "parent_decides", "reason": "task effect must be read-only or write"}
+    if mode.lower() == "plan" and (effect == "write" or category == "implementation"):
         return {
             **direct,
             "action": "plan_only",
             "reason": "plan mode prohibits write-task dispatch",
         }
+    if (category in {"exploration", "review"} and effect == "write") or (
+        category == "implementation" and effect == "read-only"
+    ):
+        return {**direct, "action": "parent_decides", "reason": "task class conflicts with its effect; reclassify the bounded task"}
     if escalation_reason is not None:
         # Quality escalation is an explicit routing preference, not evidence of
         # economical rollout, model superiority, or permission to execute.
@@ -251,6 +266,8 @@ def route_execution(
         reason = "automatic task-class routing per configured preference; benchmark admission is not required"
     return {
         **selected,
+        "task_effect": effect,
+        "read_only_required": effect == "read-only",
         "service_tier": "unchanged",
         "available": available,
         "action": action,
@@ -276,6 +293,8 @@ def main() -> int:
     parser.add_argument("command_or_category", nargs="?")
     parser.add_argument("--task-class", dest="task_class", choices=choices)
     parser.add_argument("--mode", default="default")
+    parser.add_argument("--task-effect", choices=("read-only", "write"),
+                        help="Scope task effects separately from model class; read-only forbids file, tool and external mutations.")
     parser.add_argument("--available-model", action="append", default=[])
     parser.add_argument(
         "--experimental",
@@ -313,6 +332,7 @@ def main() -> int:
     result = route_execution(
         category,
         mode=args.mode,
+        task_effect=args.task_effect,
         available_models=args.available_model,
         experimental=args.experimental,
         permission_denied=args.permission_denied,
