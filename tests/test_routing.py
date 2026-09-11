@@ -23,6 +23,7 @@ RUNTIME = "3" * 64
 def enabled_policy():
     value = load_json(ROOT / "policies" / "model-routing.json")
     value["economical_routing_default_enabled"] = True
+    value["economical_routing_require_attestation"] = True
     return value
 
 
@@ -79,7 +80,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(policy["primary_preference"]["model"], "gpt-5.6-sol")
         self.assertFalse(policy["primary_preference"]["changes_host_model_setting"])
         result = route_execution.route_execution("exploration", parent_model="gpt-5.6-sol")
-        self.assertEqual((result["action"], result["model"]), ("parent", None))
+        self.assertEqual((result["action"], result["model"]), ("parent_decides", None))
 
     def test_explicit_quality_escalation_is_separate_from_economic_proof(self):
         result = self.escalated()
@@ -155,8 +156,9 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(result["action"], "dispatch")
             self.assertEqual(result["service_tier"], "unchanged")
 
-    def test_rollout_flag_defaults_to_parent_even_with_valid_proof(self):
+    def test_disabled_rollout_routes_to_parent_even_with_valid_proof(self):
         policy = load_json(ROOT / "policies" / "model-routing.json")
+        policy["economical_routing_default_enabled"] = False
         result = routed(policy=policy, evidence=attestation(policy))
         self.assertEqual((result["action"], result["role"]), ("parent", "parent"))
         self.assertIn("rollout", result["reason"])
@@ -168,6 +170,57 @@ class RoutingTests(unittest.TestCase):
         )
         self.assertEqual(result["action"], "parent")
         self.assertIn("proof", result["reason"])
+
+    def test_daily_routes_dispatch_without_benchmark_admission(self):
+        for category, model in zip(("mechanical", "exploration", "implementation"), AVAILABLE):
+            with self.subTest(category=category):
+                result = route_execution.route_execution(category, available_models=AVAILABLE)
+                self.assertEqual((result["action"], result["model"]), ("dispatch", model))
+                self.assertFalse(result["attestation_valid"])
+                self.assertTrue(result["routing_only_not_execution_authorization"])
+                self.assertEqual(result["service_tier"], "unchanged")
+
+    def test_daily_routing_preserves_scope_and_availability_guards(self):
+        for category in ("mechanical", "implementation"):
+            self.assertEqual(route_execution.route_execution(
+                category, mode="plan", available_models=AVAILABLE)["action"], "plan_only")
+        self.assertEqual(route_execution.route_execution(
+            "exploration", mode="plan", available_models=AVAILABLE)["action"], "dispatch")
+        self.assertEqual(route_execution.route_execution(
+            "exploration", permission_denied=True, available_models=AVAILABLE)["action"], "blocked")
+        self.assertEqual(route_execution.route_execution(
+            "exploration", available_models=["gpt-5.6-sol"])["action"], "parent_decides")
+
+    def test_daily_preference_does_not_validate_bad_benchmark_evidence(self):
+        result = route_execution.route_execution(
+            "mechanical", available_models=AVAILABLE, attestation={"paired_runs": 0})
+        self.assertEqual(result["action"], "dispatch")
+        self.assertFalse(result["attestation_valid"])
+
+    def test_legacy_or_non_boolean_policy_does_not_remove_proof_gate(self):
+        for setting in ("missing", None, "false", 0, True):
+            policy = enabled_policy()
+            if setting == "missing":
+                del policy["economical_routing_require_attestation"]
+            else:
+                policy["economical_routing_require_attestation"] = setting
+            self.assertEqual(route_execution.route_execution(
+                "mechanical", policy=policy, available_models=AVAILABLE)["action"], "parent")
+        policy = load_json(ROOT / "policies" / "model-routing.json")
+        policy["economical_routing_default_enabled"] = "true"
+        self.assertEqual(route_execution.route_execution(
+            "mechanical", policy=policy, available_models=AVAILABLE)["action"], "parent")
+
+    def test_daily_cli_dispatches_without_experimental_or_attestation_flags(self):
+        for category, model in zip(("mechanical", "exploration", "implementation"), AVAILABLE):
+            result = subprocess.run([
+                sys.executable, str(ROOT / "scripts" / "route_execution.py"),
+                "select", "--task-class", category, "--available-model", model,
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual((payload["action"], payload["model"]), ("dispatch", model))
+            self.assertFalse(payload["attestation_valid"])
 
     def test_experimental_is_evaluation_only_without_proof(self):
         result = route_execution.route_execution(

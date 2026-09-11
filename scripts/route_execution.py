@@ -224,12 +224,14 @@ def route_execution(
         current_runtime_sha256=current_runtime_sha256,
         now=now,
     )
-    if not experimental and (
-        not policy["economical_routing_default_enabled"] or not proof
-    ):
+    # Only explicit False enables preference-based dispatch without benchmark
+    # admission. Older policies retain their proof requirement by default.
+    require_proof = policy.get("economical_routing_require_attestation", True) is not False
+    rollout_enabled = policy["economical_routing_default_enabled"] is True
+    if not experimental and (not rollout_enabled or (require_proof and not proof)):
         reason = (
             "stable economical routing rollout is disabled"
-            if not policy["economical_routing_default_enabled"]
+            if not rollout_enabled
             else "valid current host-local benchmark proof is missing"
         )
         return {**direct, "action": "parent", "reason": reason}
@@ -241,17 +243,20 @@ def route_execution(
             "reason": f"required model {selected['model']} is unavailable; no silent fallback",
         }
     action = "evaluation_only" if experimental else "dispatch"
-    reason = (
-        "explicit experimental evaluation only"
-        if experimental
-        else "enabled rollout with validated current host-local benchmark proof"
-    )
+    if experimental:
+        reason = "explicit experimental evaluation only"
+    elif require_proof:
+        reason = "enabled rollout with validated current host-local benchmark proof"
+    else:
+        reason = "automatic task-class routing per configured preference; benchmark admission is not required"
     return {
         **selected,
         "service_tier": "unchanged",
         "available": available,
         "action": action,
         "reason": reason,
+        "attestation_valid": proof,
+        "routing_only_not_execution_authorization": True,
     }
 
 

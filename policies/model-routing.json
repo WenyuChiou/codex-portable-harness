@@ -2,7 +2,8 @@
   "schema_version": 1,
   "provider": "openai",
   "tested_cli_baseline": "0.153.3",
-  "economical_routing_default_enabled": false,
+  "economical_routing_default_enabled": true,
+  "economical_routing_require_attestation": false,
   "minimum_attestation": {
     "paired_runs": 8,
     "quality_checks": 8,

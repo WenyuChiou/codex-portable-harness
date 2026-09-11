@@ -4,8 +4,27 @@ The canonical model and effort values live in `policies/model-routing.json`.
 `primary_preference` records the user's normal session preference. It does not
 rewrite Codex configuration or change an already running parent.
 
-Keep ordinary implementation, lookup, testing, CI, metadata and delivery with
-the primary model. Use a stronger child only for a concrete independent task:
+The primary model owns coordination and coherent small tasks. When delegation
+is useful, automatically classify each bounded task and use the policy's route:
+`mechanical` for stable testable transformations, `exploration` for read-only
+investigation, and `implementation` for independent changes with clear acceptance.
+Keep trivial work local; never create a child merely to use a different model.
+
+Daily routing is enabled by user preference. The policy explicitly sets
+`economical_routing_require_attestation` to false, so missing benchmark evidence
+does not block daily delegation. This is not measured proof of savings or quality.
+Setting it to true restores strict evidence admission; older policies missing the
+field retain that requirement. Disabling rollout retains primary execution.
+Returned `attestation_valid` reports actual evidence validity independently.
+`--experimental` remains evaluation-only even when daily routing is enabled.
+
+Call the router with task class and actual available models. No per-task user
+model selection is required. A selected model unavailable on the host requires
+an explicit parent decision, not silent substitution or repeated failing attempts.
+Model changes apply to separate bounded children, not in-place switching of the
+main conversation or a running child. Reuse the checkpoint and accepted evidence.
+
+Use a stronger child only for a concrete independent task:
 
 - `research_methodology`: conflicting assumptions, measurement validity or hard derivation.
 - `architecture_tradeoff`: consequential cross-system choices with competing constraints.

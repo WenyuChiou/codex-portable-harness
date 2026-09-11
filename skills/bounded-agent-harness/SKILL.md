@@ -65,14 +65,17 @@ Before useful independent delegation, call
 Trivial/coherent work stays with the parent. Planning permits read-only
 exploration, not implementation. Governance/security/final judgments stay with
 the parent; required reviewers use a separate context and normally inherit its model.
-Economical routes require validated host-local evidence and an enabled rollout;
-experimental routing is for explicit evaluation only. Preserve service tier.
+Daily task routing follows the enabled canonical policy without requiring a
+benchmark attestation. Classify each useful bounded task, then use the returned
+role/model/effort; do not ask the user to pick a model for routine work. Optional
+strict attestation mode remains available for evidence-gated dispatch.
+Experimental routing is evaluation-only. Preserve service tier and execution gates.
 Log model, effort, reason, expected evidence, and unavailable-model decisions.
 Never switch models to bypass a platform or permission refusal.
 
 The policy's `primary_preference` is guidance for user-selected primary sessions;
 it does not change the host's current model. Explicit `quality_escalation` is
-separate from economical rollout and makes no measured cost or quality claim.
+separate from daily task routing and makes no measured cost or quality claim.
 For a difficult bounded task, call the router with the actual `--parent-model`,
 an allowed `--escalation-reason`, and `--evidence-ref` for the concrete difficulty.
 Use the returned model/effort only when action=dispatch and the checkpoint also
