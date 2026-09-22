@@ -26,8 +26,9 @@ python scripts/route_execution.py select --task-class exploration
 python scripts/memory_proposal.py propose --task-id TASK --summary TEXT --evidence REF
 ```
 
-`bootstrap.py` deploys the two allowlisted skills and three standalone Codex
-agents (`portable-mechanical`, `portable-explorer`, `portable-worker`) into the
+`bootstrap.py` deploys the two allowlisted skills and five standalone Codex
+agents (`portable-mechanical`, `portable-mechanical-readonly`,
+`portable-explorer`, `portable-quality-explorer`, `portable-worker`) into the
 active `CODEX_HOME`. It preserves custom agents and refuses unknown/user-modified
 collisions. A host-local ownership manifest and exact old-deployment hashes
 support repeatable upgrades; each file is published atomically. A failed batch

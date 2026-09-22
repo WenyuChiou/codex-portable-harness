@@ -22,9 +22,13 @@ priority is not. A small coherent organization task stays local.
 python scripts/route_execution.py select --mode plan --task-class mechanical --task-effect read-only --available-model <available-mechanical-model>
 ```
 
-The host must copy `task_effect` and `read_only_required` into the focused packet
-and enforce response-only output, no writable paths and no mutating tools for
-read-only mechanical tasks. This metadata is not a sandbox configuration.
+Read-only mechanical work selects `portable-mechanical-readonly`, which has a
+native read-only sandbox. Escalated read-only exploration selects the dedicated
+`portable-quality-explorer` role, pinned to the policy's quality model and a
+read-only sandbox. The host must also copy
+`task_effect` and `read_only_required` into the focused packet and enforce
+response-only output with no writable paths or mutating tools. Routing metadata
+alone is not a sandbox configuration.
 File edits, UI changes, API mutations and other state changes use `write` and
 remain blocked in Plan. Mechanical calls omitting the effect conservatively
 retain their old write classification. Implementation cannot be relabeled read-only
@@ -106,5 +110,7 @@ and the focused packet, or a bounded positive history count. Full-history forks
 inherit the parent and cannot apply those overrides.
 Resume the primary workflow after delivery. Reuse accepted
 evidence when its inputs remain unchanged; do not launch redundant agents or
-re-read whole histories merely to populate a packet. Model names, efforts and
-rollout settings must not be duplicated in agent-specific defaults.
+re-read whole histories merely to populate a packet. The managed agent TOMLs
+mirror the policy's model and effort defaults so native agents remain usable;
+doctor checks that they agree. Do not duplicate routing values in prose or
+unrelated host configuration.

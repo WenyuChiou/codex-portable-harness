@@ -12,7 +12,7 @@ from typing import Any
 from common import REPO_ROOT, active_codex_home, ensure_within, sha256
 
 SKILLS = ("adaptive-response", "bounded-agent-harness")
-AGENTS = ("portable-mechanical.toml", "portable-explorer.toml", "portable-worker.toml")
+AGENTS = ("portable-mechanical.toml", "portable-mechanical-readonly.toml", "portable-explorer.toml", "portable-quality-explorer.toml", "portable-worker.toml")
 MANIFEST_RELATIVE = Path("portable-harness") / "bootstrap-ownership.json"
 # Exact pre-ownership v0.4 deployment bytes (LF and CRLF). Any other local
 # modification remains a conflict; this is not a general overwrite allowance.

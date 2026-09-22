@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import bootstrap  # noqa: E402
+import doctor  # noqa: E402
 
 
 class ManagedBootstrapTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class ManagedBootstrapTests(unittest.TestCase):
             bootstrap.deploy(home, apply=False)
             self.assertFalse(home.exists())
 
-    def test_apply_writes_manifest_and_three_agents(self) -> None:
+    def test_apply_writes_manifest_and_five_agents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary) / ".codex"
             bootstrap.deploy(home, apply=True, allow_test_root=True)
@@ -29,7 +30,7 @@ class ManagedBootstrapTests(unittest.TestCase):
             )
             self.assertEqual(
                 len([name for name in manifest["files"] if name.startswith("agents/")]),
-                3,
+                5,
             )
             self.assertEqual(manifest["owner"], "codex-portable-harness")
 
@@ -83,6 +84,12 @@ class ManagedBootstrapTests(unittest.TestCase):
             }
             self.assertEqual(before, after)
             self.assertTrue(all(action.startswith("same ") for action in actions))
+
+    def test_isolated_apply_passes_deployment_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / ".codex"
+            bootstrap.deploy(home, apply=True, allow_test_root=True)
+            self.assertEqual(doctor.check_skill_deployment(home)[0].status, "PASS")
 
     def test_symlink_target_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

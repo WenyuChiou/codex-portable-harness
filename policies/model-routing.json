@@ -23,6 +23,7 @@
     "model": "gpt-6-astra",
     "effort": "high",
     "role": "default",
+    "exploration_role": "portable-quality-explorer",
     "review_role": "code-reviewer",
     "reasons": {
       "research_methodology": ["exploration", "review"],
@@ -36,7 +37,8 @@
     "mechanical": {
       "model": "gpt-5.6-luna",
       "effort": "low",
-      "role": "portable-mechanical"
+      "role": "portable-mechanical",
+      "read_only_role": "portable-mechanical-readonly"
     },
     "exploration": {
       "model": "gpt-5.6-terra",

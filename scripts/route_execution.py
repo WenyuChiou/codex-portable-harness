@@ -209,7 +209,7 @@ def route_execution(
             missing = "computer-use tools and the intended surface must be available to the child"
         if missing:
             return {**direct, "action": "parent_decides", "reason": missing}
-        if parent_model == escalation["model"]:
+        if parent_model == escalation["model"] and category != "review":
             return {**direct, "action": "parent", "reason": "parent already uses the escalation model; independent review may still use another context"}
         if escalation["model"] not in available:
             return {**direct, "action": "parent_decides", "reason": f"required model {escalation['model']} is unavailable; no silent fallback"}
@@ -217,7 +217,11 @@ def route_execution(
             **direct,
             "model": escalation["model"],
             "effort": escalation["effort"],
-            "role": escalation["review_role"] if category == "review" else escalation["role"],
+            "role": (
+                escalation["review_role"] if category == "review"
+                else escalation["exploration_role"] if category == "exploration"
+                else escalation["role"]
+            ),
             "action": "evaluation_only" if experimental else "dispatch",
             "reason": "explicit bounded quality escalation; host permissions and checkpoint gates still apply",
             "escalation_reason": escalation_reason,
@@ -264,8 +268,12 @@ def route_execution(
         reason = "enabled rollout with validated current host-local benchmark proof"
     else:
         reason = "automatic task-class routing per configured preference; benchmark admission is not required"
+    routed_role = selected.get("read_only_role") if effect == "read-only" and category == "mechanical" else selected["role"]
+    if not isinstance(routed_role, str) or not routed_role:
+        return {**direct, "action": "parent_decides", "reason": "read-only mechanical role is not configured"}
     return {
-        **selected,
+        **{key: value for key, value in selected.items() if key != "read_only_role"},
+        "role": routed_role,
         "task_effect": effect,
         "read_only_required": effect == "read-only",
         "service_tier": "unchanged",

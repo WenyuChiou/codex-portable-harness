@@ -7,10 +7,12 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import route_execution  # noqa: E402
+import doctor  # noqa: E402
 from common import load_json  # noqa: E402
 
 AVAILABLE = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
@@ -86,6 +88,7 @@ class RoutingTests(unittest.TestCase):
         result = self.escalated()
         self.assertEqual((result["action"], result["model"], result["effort"]),
                          ("dispatch", "gpt-6-astra", "high"))
+        self.assertEqual(result["role"], "portable-quality-explorer")
         self.assertEqual(result["service_tier"], "unchanged")
         self.assertTrue(result["routing_only_not_execution_authorization"])
         self.assertEqual(result["evidence_refs"], ["decision-record:metric-ambiguity"])
@@ -118,6 +121,10 @@ class RoutingTests(unittest.TestCase):
 
     def test_parent_already_using_astra_does_not_trigger_extra_escalation(self):
         self.assertEqual(self.escalated(parent_model="gpt-6-astra")["action"], "parent")
+        result = self.escalated("review", parent_model="gpt-6-astra",
+                                escalation_reason="high_risk_review")
+        self.assertEqual((result["action"], result["role"], result["model"]),
+                         ("dispatch", "code-reviewer", "gpt-6-astra"))
 
     def test_complex_computer_use_requires_actual_child_capability(self):
         for capability in (False, None, "true"):
@@ -238,7 +245,7 @@ class RoutingTests(unittest.TestCase):
             result = route_execution.route_execution(
                 "mechanical", mode=mode, task_effect="read-only", available_models=AVAILABLE)
             self.assertEqual((result["action"], result["model"], result["role"]),
-                             ("dispatch", "gpt-5.6-luna", "portable-mechanical"))
+                             ("dispatch", "gpt-5.6-luna", "portable-mechanical-readonly"))
             self.assertTrue(result["read_only_required"])
             self.assertEqual(result["task_effect"], "read-only")
 
@@ -280,7 +287,25 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual((payload["action"], payload["model"]), ("dispatch", "gpt-5.6-luna"))
+        self.assertEqual(payload["role"], "portable-mechanical-readonly")
         self.assertTrue(payload["read_only_required"])
+
+    def test_read_only_roles_have_native_sandbox(self):
+        for name in ("portable-mechanical-readonly", "portable-explorer", "portable-quality-explorer"):
+            with self.subTest(name=name):
+                text = (ROOT / "agents" / (name + ".toml")).read_text(encoding="utf-8")
+                self.assertIn('sandbox_mode = "read-only"', text)
+
+    def test_doctor_rejects_malformed_quality_escalation(self):
+        for field, value in (("review_role", "default"),
+                             ("model", "gpt-5.6-terra"),
+                             ("effort", "medium"),
+                             ("exploration_role", "portable-explorer")):
+            with self.subTest(field=field):
+                policy = load_json(ROOT / "policies" / "model-routing.json")
+                policy["quality_escalation"][field] = value
+                with patch.object(doctor, "load_json", return_value=policy):
+                    self.assertEqual(doctor.check_agent_configuration()[0].status, "FAIL")
 
     def test_permission_denial_is_blocked_not_parent_bypass(self):
         result = routed("exploration", permission_denied=True)
