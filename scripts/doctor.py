@@ -189,20 +189,57 @@ def check_agent_configuration() -> list[Finding]:
     """Check our deliberately small standalone-agent subset on Python 3.10+."""
     try:
         policy = load_json(REPO_ROOT / "policies" / "model-routing.json")
-        for route in policy["routes"].values():
-            path = REPO_ROOT / "agents" / (route["role"] + ".toml")
-            text = path.read_text(encoding="utf-8")
-            for key, expected in (("name", route["role"]), ("model", route["model"]),
-                                  ("model_reasoning_effort", route["effort"])):
-                found = re.findall(r'^' + re.escape(key) + r'\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE)
-                if found != [expected]:
-                    raise ValueError(f"{path.name}: {key} differs from canonical routing")
-            if re.search(r"^(?:service_tier|approval_policy)\s*=", text, re.MULTILINE):
-                raise ValueError(f"{path.name}: forbidden tier/approval override")
-            if 'developer_instructions = """' not in text:
-                raise ValueError(f"{path.name}: missing instructions")
-        return [Finding("PASS", "agent-model-config", "three agents match canonical routes; no tier or approval overrides")]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+        for category, route in policy["routes"].items():
+            roles = [route["role"]]
+            if category == "mechanical":
+                roles.append(route["read_only_role"])
+            for role in roles:
+                path = REPO_ROOT / "agents" / (role + ".toml")
+                text = path.read_text(encoding="utf-8")
+                for key, expected in (("name", role), ("model", route["model"]),
+                                      ("model_reasoning_effort", route["effort"])):
+                    found = re.findall(r'^' + re.escape(key) + r'\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE)
+                    if found != [expected]:
+                        raise ValueError(f"{path.name}: {key} differs from canonical routing")
+                if re.search(r"^(?:service_tier|approval_policy)\s*=", text, re.MULTILINE):
+                    raise ValueError(f"{path.name}: forbidden tier/approval override")
+                if 'developer_instructions = """' not in text:
+                    raise ValueError(f"{path.name}: missing instructions")
+                if category == "exploration" or role == route.get("read_only_role"):
+                    if re.findall(r'^sandbox_mode\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE) != ["read-only"]:
+                        raise ValueError(f"{path.name}: read-only route lacks a native sandbox")
+        escalation = policy["quality_escalation"]
+        if (
+            type(escalation["enabled"]) is not bool
+            or not isinstance(escalation["model"], str)
+            or not escalation["model"].strip()
+            or escalation["effort"] not in {"low", "medium", "high", "xhigh", "max"}
+            or escalation["role"] != "default"
+            or escalation["exploration_role"] != "portable-quality-explorer"
+            or escalation["review_role"] != "code-reviewer"
+            or not isinstance(escalation["reasons"], dict)
+            or not escalation["reasons"]
+        ):
+            raise ValueError("quality escalation configuration is invalid")
+        allowed_classes = {"exploration", "implementation", "review"}
+        for reason, classes in escalation["reasons"].items():
+            if not isinstance(reason, str) or not reason.strip() or not isinstance(classes, list) or not classes or any(item not in allowed_classes for item in classes):
+                raise ValueError("quality escalation reason classes are invalid")
+        quality_path = REPO_ROOT / "agents" / (escalation["exploration_role"] + ".toml")
+        quality_text = quality_path.read_text(encoding="utf-8")
+        for key, expected in (("name", escalation["exploration_role"]),
+                              ("model", escalation["model"]),
+                              ("model_reasoning_effort", escalation["effort"]),
+                              ("sandbox_mode", "read-only")):
+            found = re.findall(r'^' + re.escape(key) + r'\s*=\s*"([^"\r\n]+)"\s*$', quality_text, re.MULTILINE)
+            if found != [expected]:
+                raise ValueError(f"{quality_path.name}: {key} differs from canonical quality route")
+        if re.search(r"^(?:service_tier|approval_policy)\s*=", quality_text, re.MULTILINE):
+            raise ValueError(f"{quality_path.name}: forbidden tier/approval override")
+        if 'developer_instructions = """' not in quality_text:
+            raise ValueError(f"{quality_path.name}: missing instructions")
+        return [Finding("PASS", "agent-model-config", "five agents and quality escalation match canonical routes; read-only sandboxes enforced")]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         return [Finding("FAIL", "agent-model-config", str(exc))]
 
 

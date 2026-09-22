@@ -26,8 +26,9 @@ python scripts/route_execution.py select --task-class exploration
 python scripts/memory_proposal.py propose --task-id TASK --summary TEXT --evidence REF
 ```
 
-`bootstrap.py` deploys the two allowlisted skills and three standalone Codex
-agents (`portable-mechanical`, `portable-explorer`, `portable-worker`) into the
+`bootstrap.py` deploys the two allowlisted skills and five standalone Codex
+agents (`portable-mechanical`, `portable-mechanical-readonly`,
+`portable-explorer`, `portable-quality-explorer`, `portable-worker`) into the
 active `CODEX_HOME`. It preserves custom agents and refuses unknown/user-modified
 collisions. A host-local ownership manifest and exact old-deployment hashes
 support repeatable upgrades; each file is published atomically. A failed batch
@@ -57,17 +58,26 @@ Neither maintenance nor waiting alone is a reason to ask the user to continue.
 Synthetic replay tests do not establish a real-task human-intervention rate.
 
 Model mapping is defined only in `policies/model-routing.json`; agent files must
-match it. Planning prohibits implementation. Review/governance stays with the
-parent; independent review uses another context. Economical routing is disabled
-by default pending complete quality and efficiency evidence. Explicit experimental
+match it. Planning permits read-only organization and exploration, while
+implementation and state changes remain blocked. Classify task effects separately
+with `--task-effect`; read-only mechanical output stays in the response. Governance stays with the
+parent; independent review uses another context. Daily task-class routing is enabled
+by user preference without benchmark admission. Evidence remains necessary for
+measured quality or efficiency claims. Explicit experimental
 selection is evaluation-only and cannot authorize normal dispatch. Unknown cost
 is null, not zero. No speed/cost improvement is claimed by this release.
+
+The user-selected primary preference and explicit quality escalation complement
+daily routing. An evidence-bound difficult task can select the configured
+escalation model while ordinary bounded tasks use their configured task-class model.
+The router does not switch the host model, provide computer-use access, or authorize
+execution. See [model routing](docs/MODEL_ROUTING.md) for triggers and usage.
 
 `benchmark_autonomy.py` currently supports offline evaluator testing only. It
 cannot measure the native host's full planning/delegation/review lifecycle and
 therefore refuses live runs and cannot emit promotable evidence. Its fixture
-tests do not substitute for the required live paired evaluation. Do not enable
-the rollout flag from those results.
+tests do not substitute for live paired evidence of measured savings or quality.
+Daily routing is an explicit user preference, not a promotion of those results.
 
 Doctor checks the active CLI against the tested version baseline, but a version
 check is not a native model canary. CLI 0.144.1 was rejected for `gpt-6-astra`;

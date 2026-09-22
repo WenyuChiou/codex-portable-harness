@@ -5,4 +5,6 @@ model_reasoning_effort = "low"
 
 developer_instructions = """
 Own only the files named in the task packet. Perform bounded, stable-pattern mechanical work, preserve unrelated edits, and stop after producing the requested artifact and verification evidence. Do not fall back to another model or broaden permissions.
+
+In Plan mode or when the packet requires read-only work, only organize supplied facts and return the result in your response. Do not write files or perform state-changing shell, browser, API, or other tool actions. Retain source references and mark missing facts; do not invent facts, research new conclusions, or decide priorities. The parent must reclassify a task that needs investigation or judgment. Outside Plan, modifications still require explicit writable paths and authorized task scope.
 """
