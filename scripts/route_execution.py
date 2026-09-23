@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from common import REPO_ROOT, load_json
+from common import REPO_ROOT, active_codex_home, load_json
+import model_promotion
 
 POLICY_PATH = REPO_ROOT / "policies" / "model-routing.json"
 HASH = re.compile(r"^[a-f0-9]{64}$")
@@ -150,6 +151,10 @@ def route_execution(
     current_policy_sha256: str | None = None,
     current_suite_sha256: str | None = None,
     current_runtime_sha256: str | None = None,
+    promotion_attestation: dict[str, Any] | None = None,
+    promotion_environment: dict[str, str] | None = None,
+    promotion_suite_hash: str | None = None,
+    candidate_deployed: bool = False,
     policy: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -179,10 +184,14 @@ def route_execution(
     if task_effect not in (None, "read-only", "write"):
         return {**direct, "action": "parent_decides", "reason": "task effect must be read-only or write"}
     if mode.lower() == "plan" and (effect == "write" or category == "implementation"):
+        planned = policy.get("routes", {}).get(category, {})
         return {
             **direct,
             "action": "plan_only",
             "reason": "plan mode prohibits write-task dispatch",
+            "planned_role": planned.get("role"),
+            "planned_task_class": category,
+            "reselect_on_execution": True,
         }
     if (category in {"exploration", "review"} and effect == "write") or (
         category == "implementation" and effect == "read-only"
@@ -255,11 +264,31 @@ def route_execution(
         )
         return {**direct, "action": "parent", "reason": reason}
     selected = policy["routes"][category]
+    try:
+        promotion_ok, promotion_reason = model_promotion.valid_attestation(
+            promotion_attestation, policy, category, promotion_environment,
+            now=now, suite_hash=promotion_suite_hash,
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        promotion_ok, promotion_reason = False, "promotion policy or suite is invalid"
+    candidate = policy.get("role_promotion", {}).get("candidates", {}).get(category)
+    promoted = bool(
+        promotion_ok and candidate_deployed and isinstance(candidate, dict)
+        and candidate.get("model") in available
+    )
+    if promoted:
+        selected = candidate
+        promotion_reason = "accepted host-local candidate and managed agent are available"
+    elif promotion_ok and not candidate_deployed:
+        promotion_reason = "candidate accepted but managed agent is not deployed; baseline retained"
+    elif promotion_ok:
+        promotion_reason = "candidate accepted but model is unavailable; baseline retained"
     if selected["model"] not in available:
         return {
             **direct,
             "action": "parent_decides",
             "reason": f"required model {selected['model']} is unavailable; no silent fallback",
+            "promotion_status": promotion_reason,
         }
     action = "evaluation_only" if experimental else "dispatch"
     if experimental:
@@ -282,6 +311,8 @@ def route_execution(
         "reason": reason,
         "attestation_valid": proof,
         "routing_only_not_execution_authorization": True,
+        "promotion_status": promotion_reason,
+        "promotion_active": promoted,
     }
 
 
@@ -337,6 +368,24 @@ def main() -> int:
     ):
         parser.error("provide one task class (positional or --task-class)")
     attestation = load_json(args.attestation) if args.attestation else None
+    policy = load_json(POLICY_PATH)
+    promotion_attestation = None
+    promotion_environment = None
+    candidate_deployed = False
+    if category in policy.get("routes", {}) and not (
+        args.mode.lower() == "plan"
+        and (args.task_effect == "write" or category == "implementation"
+             or (category == "mechanical" and args.task_effect is None))
+    ):
+        home = active_codex_home()
+        promotion_attestation, promotion_valid, _ = model_promotion.host_attestation(
+            home, policy, category,
+        )
+        if promotion_valid:
+            promotion_environment = model_promotion.current_environment(home)
+            candidate_deployed = model_promotion.candidate_deployed(
+                home, policy["role_promotion"]["candidates"][category],
+            )
     result = route_execution(
         category,
         mode=args.mode,
@@ -353,6 +402,10 @@ def main() -> int:
         current_policy_sha256=args.current_policy_sha256,
         current_suite_sha256=args.current_suite_sha256,
         current_runtime_sha256=args.current_runtime_sha256,
+        promotion_attestation=promotion_attestation,
+        promotion_environment=promotion_environment,
+        candidate_deployed=candidate_deployed,
+        policy=policy,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

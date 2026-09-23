@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from common import REPO_ROOT, active_codex_home, ensure_within, sha256
+from common import load_json
+import model_promotion
 
 SKILLS = ("adaptive-response", "bounded-agent-harness")
 AGENTS = ("portable-mechanical.toml", "portable-mechanical-readonly.toml", "portable-explorer.toml", "portable-quality-explorer.toml", "portable-worker.toml")
@@ -27,13 +29,20 @@ KNOWN_BASELINE_HASHES: dict[str, set[str]] = {
 }
 
 
-def desired_files() -> list[tuple[Path, Path]]:
+def desired_files(target_home: Path | None = None) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     for skill in SKILLS:
         source_root = REPO_ROOT / "skills" / skill
         for source in sorted(path for path in source_root.rglob("*") if path.is_file()):
             pairs.append((source, Path("skills") / skill / source.relative_to(source_root)))
     pairs.extend((REPO_ROOT / "agents" / name, Path("agents") / name) for name in AGENTS)
+    if target_home is not None:
+        policy = load_json(REPO_ROOT / "policies" / "model-routing.json")
+        for task_class, candidate in policy.get("role_promotion", {}).get("candidates", {}).items():
+            _, admitted, _ = model_promotion.host_attestation(target_home, policy, task_class)
+            if admitted:
+                for role in model_promotion.candidate_roles(candidate):
+                    pairs.append((model_promotion.candidate_agent_source(role), Path("agents") / f"{role}.toml"))
     return pairs
 
 
@@ -98,8 +107,9 @@ def deploy(target_home: Path, apply: bool, *, allow_test_root: bool = False) -> 
     manifest = _read_manifest(manifest_path, target_home)
     owned: dict[str, str] = manifest["files"]
     planned: list[tuple[Path, Path, str, str]] = []
+    revocations: list[tuple[Path, str]] = []
     conflicts: list[str] = []
-    for source, relative in desired_files():
+    for source, relative in desired_files(target_home):
         destination = target_home / relative
         _reject_symlinks(destination, target_home)
         desired_hash = sha256(source)
@@ -118,17 +128,40 @@ def deploy(target_home: Path, apply: bool, *, allow_test_root: bool = False) -> 
                 conflicts.append(name)
                 continue
         planned.append((source, destination, name, action))
+    files = {name: sha256(source) for source, _, name, _ in planned}
+    # Revoke only exact, unchanged, manifest-owned candidate files when their
+    # local proof expires. Keep ownership history for safe later reactivation.
+    candidate_names = {f"agents/{role}.toml" for candidate in
+                       load_json(REPO_ROOT / "policies" / "model-routing.json")["role_promotion"]["candidates"].values()
+                       for role in model_promotion.candidate_roles(candidate)}
+    for name in candidate_names.intersection(owned).difference(files):
+        destination = target_home / Path(name)
+        _reject_symlinks(destination, target_home)
+        if destination.exists():
+            if sha256(destination) != owned[name]:
+                conflicts.append(name)
+            else:
+                revocations.append((destination, name))
+        files[name] = owned[name]
+    for name in candidate_names.difference(owned).difference(files):
+        destination = target_home / Path(name)
+        _reject_symlinks(destination, target_home)
+        if destination.exists():
+            conflicts.append(name)
     if conflicts:
         raise ValueError("unmanaged or user-modified deployment conflicts: " + ", ".join(sorted(conflicts)))
-    new_manifest = {"schema_version": 1, "owner": "codex-portable-harness", "files": {name: sha256(source) for source, _, name, _ in planned}}
+    new_manifest = {"schema_version": 1, "owner": "codex-portable-harness", "files": files}
     manifest_same = manifest_path.exists() and manifest == new_manifest
     actions = [f"{action} {name}" for _, _, name, action in planned]
+    actions.extend(f"revoke {name}" for _, name in revocations)
     actions.append(f"{'same' if manifest_same else 'update' if manifest_path.exists() else 'create'} {MANIFEST_RELATIVE.as_posix()}")
     if not apply:
         return actions
     for source, destination, _, action in planned:
         if action not in {"same", "adopt"}:
             _atomic_copy(source, destination)
+    for destination, _ in revocations:
+        destination.unlink()
     if not manifest_same:
         _atomic_manifest(manifest_path, new_manifest)
     return actions

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "mechanical-json-keys", "class": "mechanical", "sandbox": "workspace-write",
+      "prompt": "In records.json, rename every old_label key to new_label. Preserve values and order. Do not edit other files.",
+      "files": {"records.json": "[{\"old_label\":\"alpha\",\"count\":1},{\"old_label\":\"beta\",\"count\":2}]\n"},
+      "verify": {"json_file": "records.json", "equals": [{"new_label": "alpha", "count": 1}, {"new_label": "beta", "count": 2}]}
+    },
+    {
+      "id": "mechanical-json-bools", "class": "mechanical", "sandbox": "workspace-write",
+      "prompt": "In settings.json, convert every enabled string true/false to a JSON boolean; preserve all other values. Do not edit other files.",
+      "files": {"settings.json": "{\"first\":{\"enabled\":\"true\",\"count\":1},\"second\":{\"enabled\":\"false\",\"count\":2}}\n"},
+      "verify": {"json_file": "settings.json", "equals": {"first": {"enabled": true, "count": 1}, "second": {"enabled": false, "count": 2}}}
+    },
+    {
+      "id": "explore-caller", "class": "exploration", "sandbox": "read-only",
+      "prompt": "Read the fixture. Which function calls parse_record? Reply as RESULT: filename:function. Do not modify files.",
+      "files": {"module.py": "def parse_record(value):\n    return value.strip()\n\ndef load(value):\n    return parse_record(value)\n"},
+      "verify": {"answer_contains": "module.py:load"}
+    },
+    {
+      "id": "explore-retry", "class": "exploration", "sandbox": "read-only",
+      "prompt": "Read the fixture. Which configuration key controls retries? Reply as RESULT: dotted.key. Do not modify files.",
+      "files": {"config.json": "{\"execution\":{\"retry_limit\":2},\"display\":{\"theme\":\"dark\"}}\n"},
+      "verify": {"answer_contains": "execution.retry_limit"}
+    },
+    {
+      "id": "implement-sum", "class": "implementation", "sandbox": "workspace-write",
+      "prompt": "Fix total() in math_ops.py with a single return sum(items), and ensure report.py exposes total_prices(items) by returning total(items). Preserve existing interfaces.",
+      "files": {"math_ops.py": "def total(items):\n    return items[0] if items else 0\n", "report.py": "from math_ops import total\n\ndef total_prices(items):\n    return total(items)\n"},
+      "verify": {"ast_rule": "sum-and-report"}
+    },
+    {
+      "id": "implement-slug", "class": "implementation", "sandbox": "workspace-write",
+      "prompt": "Fix validator.py so valid_slug uses re.fullmatch(r'[a-z0-9-]+', value) and a string-type check to accept only nonempty lowercase ASCII letters, digits and hyphens. Keep service.py's is_accepted(value) returning valid_slug(value). Use one return expression in valid_slug.",
+      "files": {"validator.py": "def valid_slug(value):\n    return bool(value)\n", "service.py": "from validator import valid_slug\n\ndef is_accepted(value):\n    return valid_slug(value)\n"},
+      "verify": {"ast_rule": "slug-and-service"}
+    },
+    {
+      "id": "correction-empty-id", "class": "implementation", "sandbox": "workspace-write",
+      "prompt": "Apply REVIEW.txt correction to validator.py. Use a single return expression that checks isinstance(value, str) and bool(value). Do not rewrite accepted identifiers.",
+      "files": {"validator.py": "def valid_id(value):\n    return isinstance(value, str)\n", "REVIEW.txt": "Reject empty identifiers; preserve whitespace inside nonempty identifiers.\n"},
+      "verify": {"ast_rule": "nonempty-id"}
+    },
+    {
+      "id": "correction-save", "class": "implementation", "sandbox": "workspace-write",
+      "prompt": "Apply REVIEW.txt correction in storage.py: on writer failure raise StorageError and preserve the original exception as __cause__.",
+      "files": {"storage.py": "def save(writer, value):\n    writer(value)\n", "REVIEW.txt": "Wrap save errors with StorageError and preserve exception chaining.\n"},
+      "verify": {"ast_rule": "save-exception-chain"}
+    }
+  ]
+}
