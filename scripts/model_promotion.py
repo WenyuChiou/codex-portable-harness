@@ -48,11 +48,12 @@ def canonical_policy_sha256(policy: dict[str, Any]) -> str:
 
 
 def suite_sha256() -> str:
+    """Hash suite text independently of Git's host-specific CRLF checkout filter."""
     digest = hashlib.sha256()
     for path in SUITE_FILES:
         digest.update(path.relative_to(REPO_ROOT).as_posix().encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         digest.update(b"\0")
     return digest.hexdigest()
 

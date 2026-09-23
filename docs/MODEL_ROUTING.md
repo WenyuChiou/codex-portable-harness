@@ -90,7 +90,10 @@ an unreadable fixture entry fails integrity verification instead of being skippe
 Passing creates a 30-day host-local attestation, tied to a hash of a local salt
 and independent OS machine identity, OS, Python and Codex versions, active tier,
 policy, complete benchmark/verifier source hash, raw evidence hash and current
-price snapshot. Copying CODEX_HOME alone does not transfer admission. Bootstrap
+price snapshot. Suite text is hashed with LF-normalized line endings so a clean
+Git checkout on a CRLF host does not invalidate equivalent benchmark code;
+substantive source changes still invalidate it. Copying CODEX_HOME alone does not
+transfer admission. Bootstrap
 then deploys only the admitted candidate agent definitions and revokes exact,
 unchanged, manifest-owned candidate files when admission expires. The router requires
 that exact deployment plus current model availability. Missing, expired or
@@ -103,20 +106,24 @@ own policy update and a fresh per-host eight-pair evaluation.
 
 ### Anonymous local evaluation snapshot (2026-09-23 UTC)
 
-One host ran the final fixed suite with identical service tier and fixtures.
-These results are host-specific, not a cross-platform or real-billing claim:
+One host ran role evaluations with identical service tier and fixtures per
+pair. Mechanical and implementation failed quality before the line-ending hash
+correction; exploration was rerun with the corrected hash. These results are
+host-specific, not a cross-platform or real-billing claim:
 
 | Role | Candidate quality | Gate | Median wall change | API price-proxy change |
 |---|---:|---|---:|---:|
 | Mechanical | Failed on formal call 12/16 | Not admitted; baseline retained | Not calculated | Not calculated |
-| Exploration | 8/8 pairs passed; no extra retries, timeouts or sandbox violations | Admitted on this host | +8.0% | +12.0% |
+| Exploration | 8/8 pairs passed; no extra retries, timeouts or sandbox violations | Not admitted; cost regression exceeded 15% | +11.4% | +16.0% |
 | Implementation | Failed on formal call 10/16 | Not admitted; baseline retained | Not calculated | Not calculated |
 
-The exploration candidate met the approved no-more-than-15%-regression gate,
-but it did **not** demonstrate a speed or cost saving. Failed roles are not
-retested merely to seek a lucky pass; they require an evidence-backed change
-and a fresh complete evaluation. Other hosts start from the baseline and must
-produce their own valid attestation before using any candidate.
+The exploration run was repeated after the line-ending hash correction because
+the earlier attestation used the nonportable suite hash. Its new API cost proxy
+exceeded the approved ceiling, so **no candidate role is active on this host**.
+Failed roles are not retested merely to seek a lucky pass; they require an
+evidence-backed change and a fresh complete evaluation. Other hosts start from
+the baseline and must produce their own valid attestation before using any
+candidate.
 
 For example, a feature task may use read-only exploration to locate interfaces,
 mechanical organization to tabulate the findings, parent judgment to choose the
