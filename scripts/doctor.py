@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from bootstrap import desired_files
+import model_promotion
 from common import REPO_ROOT, active_codex_home, ensure_within, load_json, sha256
 from validators import validate_host_manifest
 
@@ -132,7 +133,8 @@ def contains_secret(text: str) -> bool:
 
 def check_outer_ignore(home: Path) -> list[Finding]:
     probe_paths = [home / "auth.json", home / "sessions" / "probe.json", home / "state_5.sqlite", home / "config.toml",
-                   home / "harness-runs" / "probe.json", home / "harness-attestations" / "probe.json"]
+                   home / "harness-runs" / "probe.json", home / "harness-attestations" / "probe.json",
+                   home / "experiments" / "model-role-promotion" / "probe.json"]
     outer = home.parent
     try:
         subprocess.run(["git", "-C", str(outer), "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True)
@@ -151,7 +153,7 @@ def check_outer_ignore(home: Path) -> list[Finding]:
 def check_skill_deployment(home: Path) -> list[Finding]:
     drift: list[str] = []
     expected: set[str] = set()
-    for source, relative in desired_files():
+    for source, relative in desired_files(home):
         expected.add(relative.as_posix())
         destination = home / relative
         if not destination.exists() or sha256(source) != sha256(destination):
@@ -164,6 +166,12 @@ def check_skill_deployment(home: Path) -> list[Finding]:
     unexpected = sorted(actual.difference(expected))
     if unexpected:
         drift.append(f"unexpected: {', '.join(unexpected)}")
+    policy = load_json(REPO_ROOT / "policies" / "model-routing.json")
+    for candidate in policy["role_promotion"]["candidates"].values():
+        for role in model_promotion.candidate_roles(candidate):
+            relative = (Path("agents") / f"{role}.toml").as_posix()
+            if relative not in expected and (home / relative).exists():
+                drift.append(f"stale candidate: {relative}")
     if drift:
         return [Finding("FAIL", "skill-diff", f"deploy with bootstrap.py --apply: {', '.join(drift)}")]
     return [Finding("PASS", "skill-diff", "deployed skills match canonical sources")]
@@ -238,9 +246,50 @@ def check_agent_configuration() -> list[Finding]:
             raise ValueError(f"{quality_path.name}: forbidden tier/approval override")
         if 'developer_instructions = """' not in quality_text:
             raise ValueError(f"{quality_path.name}: missing instructions")
-        return [Finding("PASS", "agent-model-config", "five agents and quality escalation match canonical routes; read-only sandboxes enforced")]
+        primary = policy["primary_preference"]
+        if primary != {"source": "active_codex_session", "changes_host_model_setting": False}:
+            raise ValueError("primary preference must inherit the active session")
+        promotion = policy["role_promotion"]
+        if (promotion["minimum_paired_runs"] < 8 or promotion["lifetime_days"] < 1
+            or promotion["maximum_wall_regression_percent"] > 15
+            or promotion["maximum_cost_proxy_regression_percent"] > 15):
+            raise ValueError("promotion thresholds are weaker than the approved gate")
+        for category, candidate in promotion["candidates"].items():
+            if category not in policy["routes"] or candidate["model"] not in promotion["api_usd_per_million_tokens"]:
+                raise ValueError("candidate route or price is missing")
+            for role in model_promotion.candidate_roles(candidate):
+                path = model_promotion.candidate_agent_source(role)
+                text = path.read_text(encoding="utf-8")
+                for key, expected in (("name", role), ("model", candidate["model"]),
+                                      ("model_reasoning_effort", candidate["effort"])):
+                    if re.findall(r'^' + re.escape(key) + r'\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE) != [expected]:
+                        raise ValueError(f"{path.name}: {key} differs from candidate route")
+                if (category == "exploration" or role == candidate.get("read_only_role")) and re.findall(
+                    r'^sandbox_mode\s*=\s*"([^"\r\n]+)"\s*$', text, re.MULTILINE
+                ) != ["read-only"]:
+                    raise ValueError(f"{path.name}: candidate read-only sandbox missing")
+                if re.search(r"^(?:service_tier|approval_policy)\s*=", text, re.MULTILINE) or 'developer_instructions = """' not in text:
+                    raise ValueError(f"{path.name}: forbidden override or missing instructions")
+        model_promotion.suite_sha256()
+        return [Finding("PASS", "agent-model-config", "baseline and candidate agents match policy; read-only sandboxes enforced")]
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         return [Finding("FAIL", "agent-model-config", str(exc))]
+
+
+def check_role_promotion(home: Path, *, codex: str = "codex") -> list[Finding]:
+    policy = load_json(REPO_ROOT / "policies" / "model-routing.json")
+    findings: list[Finding] = []
+    for task_class, candidate in policy["role_promotion"]["candidates"].items():
+        path = model_promotion.attestation_path(home, task_class)
+        if not path.exists() and not path.is_symlink():
+            findings.append(Finding("PASS", "role-promotion", f"{task_class}: baseline retained; no host attestation"))
+            continue
+        _, admitted, reason = model_promotion.host_attestation(home, policy, task_class, executable=codex)
+        deployed = model_promotion.candidate_deployed(home, candidate)
+        status = "PASS" if admitted and deployed else "WARN"
+        detail = "candidate admitted and deployed" if status == "PASS" else f"baseline retained; {reason}" if not admitted else "baseline retained; candidate not deployed"
+        findings.append(Finding(status, "role-promotion", f"{task_class}: {detail}"))
+    return findings
 
 
 def check_cli_compatibility(command: str = "codex") -> list[Finding]:
@@ -284,7 +333,7 @@ def host_capabilities(home: Path) -> dict[str, object]:
 
 
 def run(home: Path, cross_tool: bool, diff: bool, *, codex: str = "codex") -> tuple[list[Finding], dict[str, object]]:
-    findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home) + check_agent_configuration() + check_cli_compatibility(codex)
+    findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home) + check_agent_configuration() + check_cli_compatibility(codex) + check_role_promotion(home, codex=codex)
     if diff:
         findings.extend(check_skill_deployment(home))
     if cross_tool:

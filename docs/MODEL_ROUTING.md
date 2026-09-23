@@ -1,8 +1,8 @@
 # Primary work and bounded quality escalation
 
 The canonical model and effort values live in `policies/model-routing.json`.
-`primary_preference` records the user's normal session preference. It does not
-rewrite Codex configuration or change an already running parent.
+`primary_preference` inherits the actual Codex session model. It never pins a
+model or rewrites host configuration.
 
 The primary model owns coordination and coherent small tasks. When delegation
 is useful, automatically classify each bounded task and use the policy's route:
@@ -50,20 +50,73 @@ Model changes apply to separate bounded children, not in-place switching of the
 main conversation or a running child. Reuse the checkpoint and accepted evidence.
 
 Apply this allocation throughout a single task, including during and after Plan.
-For each useful independent subtask, the plan records its class, effect, intended
-policy-selected model, dependencies, deliverable and acceptance check. A future
+For each future write subtask, the plan records its provisional class, effect,
+role, dependencies, deliverable and acceptance check, **not** a fixed model. A future
 mechanical edit can be assigned in the plan while its execution remains deferred.
 Use the actual Plan mode for live dispatch; read the canonical map to plan future
 assignments, never pass execution mode merely to evade a Plan restriction.
 Intended assignments do not establish dispatch readiness. Missing inputs or an
 escalation's future evidence remain pending until they actually exist.
 
-When execution begins, reuse that allocation and valid findings. Re-evaluate only
-affected task boundaries when scope, difficulty, dependencies or model availability
-change. Straightforward mechanical steps remain eligible for their route even
+When execution begins or a task resumes in a new session, reselect the model and
+effort against current policy, availability, permissions and local attestation.
+Do not re-run accepted work with unchanged relevant inputs or switch a running
+child midway. Re-evaluate only affected task boundaries when scope, difficulty,
+dependencies or model availability change. Straightforward mechanical steps remain eligible for their route even
 though the parent created the plan. Missing facts go to investigation; substantive
 decisions return to the parent or a justified escalation. Do not exhaust retries
 on the wrong task class. The parent integrates and accepts the result.
+
+## Candidate role promotion
+
+Baseline daily roles remain active without promotion evidence. Candidate roles
+defined in the same policy are **not** active merely because a newer model exists.
+On each host, run `python scripts/benchmark_role_promotion.py --task-class CLASS`
+for `mechanical`, `exploration`, or `implementation`. Each role uses eight paired
+measurements per role, randomized within-pair order, two excluded warmups,
+identical service tier and byte-identical fixture starts. Mechanical and
+exploration roles repeat two distinct fixtures four times; implementation uses
+four fixtures twice. Each fixture is an isolated temporary Git repo under the
+active Codex home. The verifier is trusted static/JSON code outside the agent
+fixture and never executes model-edited Python. All candidate answers must pass;
+control quality failures are recorded and may be rescued, but both arms still
+need complete usage and no sandbox violation. Candidate failures/retries/timeouts
+cannot increase, and median end-to-end model-call wall time and comparable token-priced
+API cost proxy must each stay within 15% of baseline. The proxy is **not** an
+actual ChatGPT subscription bill or proof of cheaper total project cost.
+Both arms disable Python bytecode writes to avoid sandbox-owned cache files;
+an unreadable fixture entry fails integrity verification instead of being skipped.
+
+Passing creates a 30-day host-local attestation, tied to a hash of a local salt
+and independent OS machine identity, OS, Python and Codex versions, active tier,
+policy, complete benchmark/verifier source hash, raw evidence hash and current
+price snapshot. Copying CODEX_HOME alone does not transfer admission. Bootstrap
+then deploys only the admitted candidate agent definitions and revokes exact,
+unchanged, manifest-owned candidate files when admission expires. The router requires
+that exact deployment plus current model availability. Missing, expired or
+mismatched evidence, unsupported models, or undeployed roles retain the baseline;
+permission refusal still blocks execution. `doctor --diff` reports deployment
+drift and promotion admission. Raw JSON events, host ID and attestations stay
+under the local Codex home; never commit them. The benchmark does not change the
+primary model, service tier or approval policy. A newer candidate requires its
+own policy update and a fresh per-host eight-pair evaluation.
+
+### Anonymous local evaluation snapshot (2026-09-23 UTC)
+
+One host ran the final fixed suite with identical service tier and fixtures.
+These results are host-specific, not a cross-platform or real-billing claim:
+
+| Role | Candidate quality | Gate | Median wall change | API price-proxy change |
+|---|---:|---|---:|---:|
+| Mechanical | Failed on formal call 12/16 | Not admitted; baseline retained | Not calculated | Not calculated |
+| Exploration | 8/8 pairs passed; no extra retries, timeouts or sandbox violations | Admitted on this host | +8.0% | +12.0% |
+| Implementation | Failed on formal call 10/16 | Not admitted; baseline retained | Not calculated | Not calculated |
+
+The exploration candidate met the approved no-more-than-15%-regression gate,
+but it did **not** demonstrate a speed or cost saving. Failed roles are not
+retested merely to seek a lucky pass; they require an evidence-backed change
+and a fresh complete evaluation. Other hosts start from the baseline and must
+produce their own valid attestation before using any candidate.
 
 For example, a feature task may use read-only exploration to locate interfaces,
 mechanical organization to tabulate the findings, parent judgment to choose the

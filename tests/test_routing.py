@@ -79,7 +79,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_primary_preference_does_not_change_current_parent(self):
         policy = load_json(ROOT / "policies" / "model-routing.json")
-        self.assertEqual(policy["primary_preference"]["model"], "gpt-5.6-sol")
+        self.assertEqual(policy["primary_preference"]["source"], "active_codex_session")
         self.assertFalse(policy["primary_preference"]["changes_host_model_setting"])
         result = route_execution.route_execution("exploration", parent_model="gpt-5.6-sol")
         self.assertEqual((result["action"], result["model"]), ("parent_decides", None))

@@ -23,18 +23,23 @@ python scripts/policy_engine.py evaluate checkpoint.json  # public decision via 
 python scripts/policy_engine.py migrate old.json --metadata request.json --output new.json
 python scripts/policy_engine.py advance new.json --request-id next-slice --expected-sha256 FILE_HASH
 python scripts/route_execution.py select --task-class exploration
+python scripts/benchmark_role_promotion.py --task-class exploration  # per-host candidate admission
 python scripts/memory_proposal.py propose --task-id TASK --summary TEXT --evidence REF
 ```
 
-`bootstrap.py` deploys the two allowlisted skills and five standalone Codex
+`bootstrap.py` deploys the two allowlisted skills and five baseline Codex
 agents (`portable-mechanical`, `portable-mechanical-readonly`,
 `portable-explorer`, `portable-quality-explorer`, `portable-worker`) into the
 active `CODEX_HOME`. It preserves custom agents and refuses unknown/user-modified
-collisions. A host-local ownership manifest and exact old-deployment hashes
+collisions. Candidate agent definitions are deployed only after that host has
+passed the current eight-pair role benchmark; absent evidence keeps the five
+baseline agents. A host-local ownership manifest and exact old-deployment hashes
 support repeatable upgrades; each file is published atomically. A failed batch
 may be partially applied and must be inspected before re-running. No global
 model, service tier, sandbox, or approval config is changed. Cross-tool exports
 remain proposals inside this repository.
+Expired candidate definitions are revoked only when their bytes still match the
+managed manifest; changed or unmanaged files cause a reported conflict.
 The legacy nested-metrics checkpoint remains parse-only for migration. New
 checkpoints use the public `TaskCheckpoint` shape. Legacy unsigned overrides
 fail closed. Ordinary v2 slice continuation does not require an override.
@@ -67,7 +72,7 @@ measured quality or efficiency claims. Explicit experimental
 selection is evaluation-only and cannot authorize normal dispatch. Unknown cost
 is null, not zero. No speed/cost improvement is claimed by this release.
 
-The user-selected primary preference and explicit quality escalation complement
+The current parent session model and explicit quality escalation complement
 daily routing. An evidence-bound difficult task can select the configured
 escalation model while ordinary bounded tasks use their configured task-class model.
 The router does not switch the host model, provide computer-use access, or authorize
@@ -78,6 +83,18 @@ cannot measure the native host's full planning/delegation/review lifecycle and
 therefore refuses live runs and cannot emit promotable evidence. Its fixture
 tests do not substitute for live paired evidence of measured savings or quality.
 Daily routing is an explicit user preference, not a promotion of those results.
+
+Candidate model upgrades use the separate `benchmark_role_promotion.py` driver.
+It produces eight local paired runs per role and admits a candidate only if
+quality, failure/retry/timeout, workspace-integrity, wall-time and API-price-proxy
+gates pass. That proxy is not the account's actual bill. Raw events, host identity
+and attestation remain in ignored host-local runtime directories; copied home
+files alone do not transfer admission to another machine. The independent
+verifier uses static/JSON checks and never executes model-modified code. A candidate
+unsupported by the host CLI fails at its first warmup and is not repeatedly
+retried or deployed. Plan write assignments record a provisional role; execution
+and cross-session resume reselect against live availability and authorization.
+Accepted work and cumulative checkpoint usage survive that reselection.
 
 Doctor checks the active CLI against the tested version baseline, but a version
 check is not a native model canary. CLI 0.144.1 was rejected for `gpt-6-astra`;

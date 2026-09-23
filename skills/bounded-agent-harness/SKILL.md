@@ -83,21 +83,27 @@ sandbox. Preserve sources and mark missing facts; new investigation uses explora
 while priorities and substantive synthesis stay with the parent. Small coherent
 organization stays local when delegation costs more than doing it directly.
 
-Route across the whole task lifecycle, not only the current mode. In Plan, assign
-each useful independent subtask an intended class, effect, policy-selected model,
-dependencies, deliverable and acceptance check. Include future mechanical edits
-as planned work without executing them. Use the current Plan mode for actual
-dispatch; consult the policy map for future assignments, never fake execution
-mode to select or launch a write task. Provisional escalation still needs its
-reason and evidence before dispatch. After Plan, carry these assignments forward
-and recheck scope, difficulty, availability and effects at each task boundary.
-Reuse valid assignments and accepted results; revise only affected tasks. Do not
-default every execution step to the parent merely because it wrote the plan,
-and do not invoke every model solely to fill a roster. Reclassify a task needing
-more investigation/judgment rather than repeatedly retrying a mismatched worker.
+Route across the whole task lifecycle, not only the current mode. In Plan, save
+each future write subtask's provisional class, effect, role, dependencies,
+deliverable and acceptance check; do not pin a future model or dispatch it.
+The router returns `plan_only` and `reselect_on_execution` for these tasks.
+Read-only Plan work may dispatch under normal gates. At execution or a later
+session boundary, call the router again with current model availability,
+permissions, policy and host-local promotion evidence. An already running child
+keeps its model until it finishes. Reuse accepted results whose relevant inputs
+are unchanged; do not repeat them merely because a model or session changed.
+Review correction and eligible slice advance preserve cumulative usage and
+authorization. Reclassify a task needing more investigation or judgment rather
+than repeatedly retrying a mismatched worker.
 
-The policy's `primary_preference` is guidance for user-selected primary sessions;
-it does not change the host's current model. Explicit `quality_escalation` is
+The policy's `primary_preference` inherits the active parent session; it does not
+change the host's current model. Candidate role models require a valid local
+eight-pair attestation, current policy and suite hashes, matching runtime, an
+available model, and a managed deployed agent. Missing or stale proof keeps the
+baseline route; it does not interrupt an authorized goal or trigger blind model
+retries. A CLI/model refusal is a concrete unavailable-model signal: diagnose
+once and use a safe available route at the next child boundary. Never switch a
+running child or bypass permission denial. Explicit `quality_escalation` is
 separate from daily task routing and makes no measured cost or quality claim.
 For a difficult bounded task, call the router with the actual `--parent-model`,
 an allowed `--escalation-reason`, and `--evidence-ref` for the concrete difficulty.
