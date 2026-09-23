@@ -59,6 +59,19 @@ def evidence(task_class="mechanical"):
 
 
 class PromotionTests(unittest.TestCase):
+    def test_suite_hash_is_stable_across_lf_and_crlf_checkouts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "suite.py"
+            with (patch.object(model_promotion, "REPO_ROOT", root),
+                  patch.object(model_promotion, "SUITE_FILES", (source,))):
+                source.write_bytes(b"value = 1\nnext_value = 2\n")
+                lf_hash = model_promotion.suite_sha256()
+                source.write_bytes(b"value = 1\r\nnext_value = 2\r\n")
+                self.assertEqual(model_promotion.suite_sha256(), lf_hash)
+                source.write_bytes(b"value = 1\r\nnext_value = 3\r\n")
+                self.assertNotEqual(model_promotion.suite_sha256(), lf_hash)
+
     def test_eight_pairs_quality_and_runtime_are_required(self):
         value, environment, proof = evidence()
         self.assertEqual(model_promotion.valid_attestation(
