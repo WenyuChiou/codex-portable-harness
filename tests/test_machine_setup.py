@@ -357,7 +357,10 @@ class NativeAcceptanceTests(unittest.TestCase):
             result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, env={**os.environ, "CODEX_HOME": str(home)})
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
             repaired = (home / "repairs.txt").read_text(encoding="utf-8-sig").splitlines()
-            self.assertEqual(repaired, [str(launcher), str(home / "research-runtime/Scripts/python.exe")])
+            # Windows runners may expose TEMP through its DOS 8.3 alias;
+            # PowerShell expands that alias when resolving CODEX_HOME.
+            self.assertEqual([Path(path).resolve() for path in repaired],
+                             [launcher.resolve(), (home / "research-runtime/Scripts/python.exe").resolve()])
 
     def test_failed_completion_checkpoint_preserves_terminal_error(self):
         with tempfile.TemporaryDirectory() as tmp:
