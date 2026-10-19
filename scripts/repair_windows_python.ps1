@@ -5,6 +5,7 @@ param(
     [string]$Codex = 'codex'
 )
 $ErrorActionPreference = 'Stop'
+if ($env:CODEX_HOME -and -not [IO.Path]::IsPathRooted($env:CODEX_HOME)) { throw 'Set CODEX_HOME to an absolute path before running the PowerShell entrypoint' }
 $codexRoot = if ($env:CODEX_HOME) { [IO.Path]::GetFullPath($env:CODEX_HOME) } else { Join-Path $env:USERPROFILE '.codex' }
 if (-not $PythonPath) { $PythonPath = Join-Path $codexRoot 'research-runtime\Scripts\python.exe' }
 $pythonResolved = (Resolve-Path -LiteralPath $PythonPath).Path

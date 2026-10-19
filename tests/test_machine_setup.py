@@ -367,6 +367,15 @@ class NativeAcceptanceTests(unittest.TestCase):
             result = subprocess.run([executable, "-NoProfile", "-Command", command], capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
 
+    def test_powershell_rejects_unexpanded_home_before_any_setup(self):
+        executable = shutil.which("pwsh") or shutil.which("powershell")
+        if not executable:
+            self.skipTest("PowerShell is unavailable")
+        environment = {**os.environ, "CODEX_HOME": "~/.codex"}
+        result = subprocess.run([executable, "-NoProfile", "-File", str(ROOT / "setup.ps1")], capture_output=True, env=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"absolute path", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
