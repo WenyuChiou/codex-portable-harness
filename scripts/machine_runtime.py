@@ -26,7 +26,7 @@ Candidate promotion still requires host-local benchmark evidence.
 
 def configure(home: Path, bins: list[Path]) -> None:
     folder = home / "machine-setup"
-    for path in (folder, home / "AGENTS.md", folder / "runtime-guidance.json"):
+    for path in (folder, home / "AGENTS.md", folder / "runtime-guidance.json", home / "research-vault"):
         _reject_symlinks(path, home)
     agents = home / "AGENTS.md"
     existing = agents.read_text(encoding="utf-8") if agents.exists() else ""

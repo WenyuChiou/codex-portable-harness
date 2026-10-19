@@ -24,6 +24,19 @@ def python_at(root: Path) -> Path:
     return root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def preflight_paths(home: Path) -> None:
+    # Check before an existing launcher, pip/npm cache, or vault is used. The
+    # PowerShell entrypoint also calls the write-free plan before its first write.
+    for name in ("portable-harness-runtime", "research-runtime", "tmp",
+                 "machine-setup", "machine-setup/pip-cache", "machine-setup/npm-cache",
+                 "research-node/node_modules", "tools/agy", "research-vault"):
+        _reject_symlinks(home / name, home)
+    if os.name == "nt":
+        for name in ("portable-harness-runtime", "research-runtime"):
+            for child in ("Scripts/python.exe", "Lib/site-packages"):
+                _reject_symlinks(home / name / child, home)
+
+
 def environment(home: Path, root: Path, interpreter: str) -> Path:
     _reject_symlinks(root, home)
     if not python_at(root).exists():
@@ -70,6 +83,7 @@ def antigravity(home: Path, spec: dict) -> dict:
 
 
 def install(home: Path, spec: dict, research_python: str) -> dict:
+    preflight_paths(home)
     print("Preflight pinned sources and deployed files", file=sys.stderr, flush=True)
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not npm:
@@ -129,6 +143,7 @@ def main() -> int:
     home = active_codex_home()
     spec = profile()
     try:
+        preflight_paths(home)
         if args.apply:
             result = install(home, spec, args.research_python)
         else:

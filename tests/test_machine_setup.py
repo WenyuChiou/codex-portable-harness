@@ -171,6 +171,42 @@ class ManagedResearchTests(unittest.TestCase):
 
 
 class CompatibilityTests(unittest.TestCase):
+    def test_linked_runtime_is_rejected_before_any_installer_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, outside = Path(tmp) / "codex", Path(tmp) / "outside"
+            home.mkdir(); outside.mkdir()
+            target = home / "research-runtime"
+            if os.name == "nt":
+                result = subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(target), str(outside)], capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            else:
+                target.symlink_to(outside, target_is_directory=True)
+            with mock.patch.object(setup_machine, "run") as invocation:
+                with self.assertRaises(ValueError):
+                    setup_machine.install(home, {}, "python")
+                invocation.assert_not_called()
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertFalse((home / "tmp").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows entrypoint junction boundary")
+    def test_entrypoint_rejects_runtime_junction_before_first_write(self):
+        executable = shutil.which("pwsh") or shutil.which("powershell")
+        if not executable:
+            self.skipTest("PowerShell is unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            home, outside = Path(tmp) / "codex", Path(tmp) / "outside"
+            home.mkdir(); outside.mkdir()
+            target = home / "portable-harness-runtime"
+            result = subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(target), str(outside)], capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            # Only prerequisite discovery is stubbed. The real write-free Python
+            # preflight must reject the junction before venv creation or pip.
+            command = "function global:git {}; function global:npm {}; function global:codex {}; & '" + str(ROOT / "setup.ps1").replace("'", "''") + "' -Apply -Python '" + sys.executable.replace("'", "''") + "'"
+            result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, env={**os.environ, "CODEX_HOME": str(home)})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertFalse((home / "tmp").exists())
+
     def test_wrong_research_python_fails_before_creating_environment(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "codex"
@@ -290,6 +326,35 @@ class CompatibilityTests(unittest.TestCase):
 
 
 class NativeAcceptanceTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows ACL entrypoint")
+    def test_entrypoint_repairs_both_original_virtual_environments(self):
+        executable = shutil.which("pwsh") or shutil.which("powershell")
+        if not executable:
+            self.skipTest("PowerShell is unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            home, repo = Path(tmp) / "codex", Path(tmp) / "repo"
+            (home / "portable-harness-runtime/Scripts").mkdir(parents=True)
+            (home / "machine-setup").mkdir()
+            (repo / "scripts").mkdir(parents=True)
+            launcher = home / "portable-harness-runtime/Scripts/python.exe"
+            launcher.touch()
+            (home / "machine-setup/activate.ps1").write_text("")
+            shutil.copyfile(ROOT / "setup.ps1", repo / "setup.ps1")
+            # No installers, model calls or ACL changes run in this fixture.
+            # The repair stub records the exact launchers handed off by setup.
+            (repo / "scripts/repair_windows_python.ps1").write_text(
+                "param([switch]$Apply, [string]$PythonPath)\n"
+                "if (-not $Apply -or -not $PythonPath) { throw 'Missing repair target' }\n"
+                "Add-Content -LiteralPath (Join-Path $env:CODEX_HOME 'repairs.txt') -Value $PythonPath\nexit 0\n")
+            literal = lambda path: "'" + str(path).replace("'", "''") + "'"
+            command = "function global:git {}; function global:npm {}; function global:codex {}; "
+            command += "Set-Item -LiteralPath " + literal("Function:global:" + str(launcher)) + " -Value { $global:LASTEXITCODE = 0 }; "
+            command += "& " + literal(repo / "setup.ps1") + " -Apply -RepairPythonAcl -Python " + literal(launcher)
+            result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, env={**os.environ, "CODEX_HOME": str(home)})
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            repaired = (home / "repairs.txt").read_text(encoding="utf-8-sig").splitlines()
+            self.assertEqual(repaired, [str(launcher), str(home / "research-runtime/Scripts/python.exe")])
+
     def test_failed_completion_checkpoint_preserves_terminal_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

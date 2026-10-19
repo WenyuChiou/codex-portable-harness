@@ -44,8 +44,12 @@ Invoke-Checked $harnessPython @('-m', 'pip', 'install', $repo)
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\bootstrap.py'), '--apply')
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\setup_machine.py'), '--apply', '--research-python', $ResearchPython)
 if ($RepairPythonAcl) {
-    & (Join-Path $repo 'scripts\repair_windows_python.ps1') -Apply
-    if ($LASTEXITCODE -ne 0) { throw 'Python sandbox repair failed' }
+    # Different base versions can have different ACLs; verify both original
+    # launchers rather than assuming the research repair covers the harness.
+    foreach ($runtimePython in @($harnessPython, (Join-Path $codexRoot 'research-runtime\Scripts\python.exe'))) {
+        & (Join-Path $repo 'scripts\repair_windows_python.ps1') -Apply -PythonPath $runtimePython
+        if ($LASTEXITCODE -ne 0) { throw 'Python sandbox repair failed' }
+    }
 }
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\verify_installation.py'), '--sandbox', '--save')
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\functional_checks.py'))

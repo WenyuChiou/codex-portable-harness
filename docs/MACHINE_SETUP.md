@@ -59,6 +59,8 @@ manifest 下載，驗證 SHA-512 後放入 `CODEX_HOME/tools/agy`。該工具採
 遇到未知同名檔或使用者修改就拒絕覆蓋；不刪除自訂 agents，不執行
 `research-hub install`。不要用「強制重裝」抹掉衝突。每個已發布檔案都記錄
 ownership，部分中斷後先查差異再重跑；這不是跨全部套件的原子交易。
+安裝入口在使用既有 Python 或寫入 runtime/cache/vault 前會拒絕 managed
+目錄中的 junction／symlink，避免沿連結寫到 CODEX_HOME 外。
 
 `CODEX_HOME` 可自訂為絕對路徑，未設定則為 `~/.codex`；其他 agent 產品的
 home 不可作為目標。候選模型升級仍須本機 benchmark，不會從舊機搬 admission。
@@ -138,6 +140,8 @@ base Python 子樹加上現有 CodexSandboxUsers 群組的可繼承 ReadAndExecu
 不授予寫入、不修改 Everyone、不改 sandbox/network/approval。
 原 launcher 已能執行則不變更 ACL。權限繼承可能耗時，應等待結束再驗證。
 其他啟動錯誤會停止診斷，不把它們誤當 ACL 問題。
+安裝入口的 `-RepairPythonAcl` 會分別檢查 harness 與研究環境的原 launcher；
+兩者使用不同 base Python 時，也各自依診斷結果處理。
 
 備份的 repair.json 保存 target/parent。需要還原時，由操作者使用
 `icacls.exe <recorded-parent> /restore <backup-file>`；還原也會恢復原本的限制。
