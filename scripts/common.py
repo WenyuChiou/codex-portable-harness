@@ -12,11 +12,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def active_codex_home() -> Path:
-    expected = (Path.home() / ".codex").resolve()
     configured = os.environ.get("CODEX_HOME")
-    if configured and Path(configured).expanduser().resolve() != expected:
-        raise ValueError("production commands are restricted to ~/.codex")
-    return expected
+    home = Path(configured).expanduser() if configured else Path.home() / ".codex"
+    if not home.is_absolute():
+        raise ValueError("CODEX_HOME must be absolute")
+    resolved = home.resolve()
+    if resolved == Path(resolved.anchor) or resolved == Path.home().resolve():
+        raise ValueError("CODEX_HOME must be a dedicated directory, not a filesystem root or the entire user home")
+    if any(part.lower() in {".claude", ".gemini", ".opencode"} for part in (*home.parts, *resolved.parts)):
+        raise ValueError("CODEX_HOME cannot be another agent product's home")
+    return resolved
 
 
 def load_json(path: Path) -> dict[str, Any]:

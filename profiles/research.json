@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "name": "research",
+  "sources": [
+    {
+      "repo": "WenyuChiou/research-hub",
+      "commit": "2f860f8b56a77c4ce9364e8f7de948040a2ef7f3",
+      "skills": [
+        "skills/gap-to-topic",
+        "skills/literature-triage-matrix",
+        "skills/notebooklm-brief-verifier",
+        "skills/paper-memory-builder",
+        "skills/paper-summarize",
+        "skills/research-context-compressor",
+        "skills/research-design-helper",
+        "skills/research-hub",
+        "skills/research-hub-multi-ai",
+        "skills/research-project-orienter",
+        "skills/research-workflow-orchestrator",
+        "skills/zotero-library-curator"
+      ]
+    },
+    {
+      "repo": "WenyuChiou/academic-writing-skills",
+      "commit": "16b0d4207843cc53c0a2b6c59c4ee5ef46dc64f3",
+      "skills": [
+        "skills/academic-writing-skills",
+        "skills/paper-review"
+      ]
+    },
+    {
+      "repo": "WenyuChiou/zotero-skills",
+      "commit": "f5772f8b62410858d41436efe11e85529b5dee8c",
+      "skills": [
+        "skills/zotero-skills"
+      ]
+    },
+    {
+      "repo": "WenyuChiou/codex-delegate",
+      "commit": "73eb7d87fe54b54c34f5d40695774f24cb7a59ff",
+      "skills": [
+        "skills/codex-delegate"
+      ]
+    },
+    {
+      "repo": "WenyuChiou/antigravity-delegate",
+      "commit": "6dbe89dde991d4a5c5298014e284ce78e7091fc8",
+      "skills": [
+        "skills/antigravity-delegate"
+      ]
+    }
+  ],
+  "extra_agents": {
+    "repo": "WenyuChiou/dotfiles-claude",
+    "commit": "3dd6c053b59835dae6b1babbc1b38782d2a23e9a",
+    "names": [
+      "banned-word-auditor",
+      "code-reviewer",
+      "harness-drift-monitor",
+      "silent-failure-hunter-py"
+    ]
+  },
+  "research_distribution": "research-hub-pipeline",
+  "research_version": "1.2.0",
+  "research_source_max_path": 111,
+  "research_extras": [
+    "import",
+    "playwright",
+    "secrets"
+  ],
+  "python_packages": [
+    "playwright",
+    "python-docx",
+    "pdfplumber",
+    "pyzotero"
+  ],
+  "defuddle": "0.19.5",
+  "node_docx": "9.12.0",
+  "antigravity_manifest_base": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app",
+  "antigravity_tested_version": "1.4.2",
+  "notebooklm_upstream_sha256": "9f86aeb7724211b3bf0c753b3ce6f6c26200883a5df45df451f2b78a67ce9369",
+  "notebooklm_legacy_patches": {
+    "99b519912d9827636e63fba401e6cbfb3059eefbd3a863ce502c35bdbac87058": "research-runtime/compatibility-backups/notebooklm-auth.upstream.py"
+  },
+  "previous_agent_sha256": {
+    "banned-word-auditor": "f93156d8cce7428c13244bbd204e1c9b458025063e0c1ac0de5d4302813be204",
+    "code-reviewer": "fcb8ab9d7367f5ea7601139885d5dbbe96284dfe3f348803abef00e963b82c64",
+    "harness-drift-monitor": "38fa6e706d5057d3a51863976f51983296e3db3c6f2f5b835446cabcfbad6e2a",
+    "silent-failure-hunter-py": "b7b7d2810e42ab0df51539ee50dc9df021681b8d8ef97224e3152f715ce5e3e0"
+  }
+}

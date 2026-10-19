@@ -1,6 +1,11 @@
 # Repository Contract
 
 - This repository may write only inside the active `CODEX_HOME` directory.
+- Explicitly invoking `repair_windows_python.ps1 -Apply` permits one narrow
+  exception: back up ACLs inside `CODEX_HOME`, then add inheritable read/execute
+  for the existing `CodexSandboxUsers` group on the virtual environment's
+  verified base-Python installation only. Require a reproduced Windows error 5;
+  never grant write access or change sandbox/network/approval settings.
 - Never read from or write to another agent product's home directory.
 - Never commit credentials, OAuth data, session transcripts, databases, caches,
   machine identities, host-local manifests, or absolute user paths.

@@ -102,7 +102,7 @@ def deploy(target_home: Path, apply: bool, *, allow_test_root: bool = False) -> 
     target_home = Path(os.path.abspath(target_home))
     _reject_symlinks(target_home, target_home)
     if apply and not allow_test_root and target_home != active_codex_home():
-        raise ValueError("deployment is restricted to the active ~/.codex")
+        raise ValueError("deployment is restricted to the active CODEX_HOME")
     manifest_path = target_home / MANIFEST_RELATIVE
     manifest = _read_manifest(manifest_path, target_home)
     owned: dict[str, str] = manifest["files"]
