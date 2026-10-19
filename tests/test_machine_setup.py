@@ -339,8 +339,13 @@ class NativeAcceptanceTests(unittest.TestCase):
             launcher = home / "portable-harness-runtime/Scripts/python.exe"
             launcher.touch()
             (home / "machine-setup/activate.ps1").write_text("")
-            shutil.copyfile(ROOT / "setup.ps1", repo / "setup.ps1")
             # No installers, model calls or ACL changes run in this fixture.
+            # Stub only checked command execution, leaving repair dispatch and
+            # argument binding intact. Absolute-path function interception works
+            # in Windows PowerShell but PowerShell 7 resolves the native file.
+            setup = (ROOT / "setup.ps1").read_text(encoding="utf-8")
+            self.assertEqual(setup.count("& $Executable @Arguments"), 1)
+            (repo / "setup.ps1").write_text(setup.replace("& $Executable @Arguments", "$global:LASTEXITCODE = 0"), encoding="utf-8")
             # The repair stub records the exact launchers handed off by setup.
             (repo / "scripts/repair_windows_python.ps1").write_text(
                 "param([switch]$Apply, [string]$PythonPath)\n"
@@ -348,7 +353,6 @@ class NativeAcceptanceTests(unittest.TestCase):
                 "Add-Content -LiteralPath (Join-Path $env:CODEX_HOME 'repairs.txt') -Value $PythonPath\nexit 0\n")
             literal = lambda path: "'" + str(path).replace("'", "''") + "'"
             command = "function global:git {}; function global:npm {}; function global:codex {}; "
-            command += "Set-Item -LiteralPath " + literal("Function:global:" + str(launcher)) + " -Value { $global:LASTEXITCODE = 0 }; "
             command += "& " + literal(repo / "setup.ps1") + " -Apply -RepairPythonAcl -Python " + literal(launcher)
             result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, env={**os.environ, "CODEX_HOME": str(home)})
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
