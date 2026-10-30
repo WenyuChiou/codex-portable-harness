@@ -15,6 +15,13 @@ caches, machine identities, or host-local paths.
 
 ## Commands
 
+For already authorized fixed batches, use the boundary-based guidance in
+[Low-overhead orchestration](docs/LOW_OVERHEAD_OPERATION.md). Resource snapshots
+and repeated per-seed approval are not default harness requirements. The
+read-only evaluator supports `--compact` decision summaries. Reproducible offline
+timings, byte counts and their limits are in
+[Overhead measurements](docs/OVERHEAD_MEASUREMENTS.md).
+
 For a new Windows research workstation, use the optional
 [machine setup guide](docs/MACHINE_SETUP.md). It installs the isolated harness
 runtime, the baseline deployment, 17 pinned research skills, four adapted native

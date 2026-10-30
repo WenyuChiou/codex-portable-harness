@@ -100,6 +100,51 @@ class BenchmarkTests(unittest.TestCase):
         ):
             self.assertEqual(sum(case["task_type"] == kind for case in cases), 2)
 
+    def test_fingerprint_does_not_read_ignored_runtime_evidence(self):
+        (self.source / ".gitignore").write_text("runs/\n", encoding="utf-8")
+        folder = self.source / "runs"; folder.mkdir()
+        runtime = folder / "active.lock"; runtime.write_bytes(b"before")
+        before = benchmark._source_fingerprint(self.source)
+        original = Path.open
+        def guarded(path, *args, **kwargs):
+            if path == runtime:
+                raise PermissionError("runtime writer holds this file")
+            return original(path, *args, **kwargs)
+        with mock.patch.object(Path, "open", guarded):
+            self.assertEqual(before, benchmark._source_fingerprint(self.source))
+
+    def test_tracked_file_still_hashed_when_ignore_pattern_matches(self):
+        (self.source / ".gitignore").write_text("tracked.txt\n", encoding="utf-8")
+        before = benchmark._source_fingerprint(self.source)
+        (self.source / "tracked.txt").write_text("changed", encoding="utf-8")
+        self.assertNotEqual(before, benchmark._source_fingerprint(self.source))
+
+    def test_nonignored_untracked_source_changes_are_detected(self):
+        source = self.source / "new.py"; source.write_text("x=1", encoding="utf-8")
+        before = benchmark._source_fingerprint(self.source)
+        source.write_text("x=2", encoding="utf-8")
+        self.assertNotEqual(before, benchmark._source_fingerprint(self.source))
+
+    def test_tracked_deletion_changes_fingerprint(self):
+        before = benchmark._source_fingerprint(self.source)
+        (self.source / "tracked.txt").unlink()
+        self.assertNotEqual(before, benchmark._source_fingerprint(self.source))
+
+    def test_source_inventory_failure_is_explicit(self):
+        with mock.patch.object(benchmark.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, b"", b"failed")):
+            with self.assertRaisesRegex(RuntimeError, "inventory"):
+                benchmark._source_fingerprint(self.source)
+
+    def test_embedded_repository_is_not_silently_fingerprinted_as_directory(self):
+        nested = self.source / "nested"; nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True, capture_output=True)
+        (nested / "code.py").write_text("x=1", encoding="utf-8")
+        subprocess.run(["git", "-C", str(nested), "add", "code.py"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(nested), "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True, capture_output=True)
+        (nested / "code.py").write_text("dirty", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "nested repository"):
+            benchmark._source_fingerprint(self.source)
+
     def test_fixture_paths_and_content_are_validated_before_materialization(self):
         original = json.loads(benchmark.DEFAULT_CASES.read_text(encoding="utf-8"))
         unsafe = (

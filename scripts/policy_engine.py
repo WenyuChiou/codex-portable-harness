@@ -100,7 +100,11 @@ def main(*, test_home: Path | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--request-id")
     parser.add_argument("--expected-sha256")
+    parser.add_argument("--compact", action="store_true",
+                        help="Print a decision summary without repeating limits and metrics; evaluate only")
     args = parser.parse_args()
+    if args.compact and args.command != "evaluate":
+        parser.error("--compact is only supported for read-only evaluate")
 
     try:
         if args.command != "evaluate":
@@ -174,7 +178,15 @@ def main(*, test_home: Path | None = None) -> int:
             policy_id=args.policy.stem.strip() or "unreadable-policy",
             reason=str(exc),
         ).to_dict()
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    if args.compact:
+        summary = {key: result.get(key) for key in (
+            "schema_version", "decision", "scope", "auto_continue", "spawn_allowed",
+            "checkpoint_required", "reasons", "policy_id", "policy_hash",
+        )}
+        summary["format"] = "decision-summary.v1"
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     if result["decision"] == "stop":
         return 4
     if result["decision"] == "checkpoint":

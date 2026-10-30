@@ -13,4 +13,13 @@ artifacts/
 *.egg-info/
 build/
 /bootstrap-ownership.json
+/.venv/
+/checkpoints/
+/runs/
+/evidence/
+/scratch/
+/state/
+/tasks/
+/policies/readonly-*.json
+/*.lock
 /machine-setup/
