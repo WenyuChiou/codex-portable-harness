@@ -9,15 +9,41 @@ Use the canonical policy at
 `${CODEX_HOME}/portable-harness/policies/agent-budget.yaml`. If `CODEX_HOME` is
 unset, resolve it as `~/.codex`.
 
+Activate this harness for agent delegation, open-ended agent loops, and governed
+recovery. A previously authorized, fixed serial batch with its own durable
+request budget and failure journal does not need a second orchestration loop
+merely because its native process runs for a long time. Keep an already adopted
+goal's counters and evidence; do not disable a live hard limit or reset state.
+
 Before spawning work, give every child a parent ID, bounded task, expected
 evidence, result shape, and stop condition. Pass a focused task packet rather
 than full history unless full context is essential and explicitly justified.
 
-Before every spawn and after every plan–act–reflect cycle, update a
+Before every spawn and after each substantive plan–act–reflect cycle, update a
 `TaskCheckpoint` with evidence references, child counts, context sizes, and
 measurable counters. Run the thin `policy_engine.py evaluate` adapter, which
 delegates to the released `agent-collab-harness` public contract; do not spawn when its
 `spawn_allowed` field is false.
+
+An unchanged status poll, receipt lookup, or healthy scheduler wake is not a new
+cycle. Accumulate the real tool/time observations and flush them at the next
+execution, delegation, recovery, scope change, or budget boundary. Evaluate
+before further governed actions when a limit is reached. Await completion of a
+checkpoint write before starting a reader or dependent transition. Use
+`evaluate --compact` when only a decision summary is needed; it changes output,
+not evaluation or limits. Keep bulky raw evidence outside the live checkpoint,
+referenced by path/hash, and never discard accepted history to shrink it.
+
+Resource snapshots, repeated connection probes, short-lived readiness grants,
+and per-seed approvals are not requirements of this harness. Add such a gate
+only for a concrete applicable contract or observed contention, with the reason
+and minimum scope recorded. Do not invent another quota after the same failing
+preflight exhausts one. Diagnose the dependency and reuse unchanged accepted
+preparation. Honor a direct human waiver of a discretionary project check with
+an honest authority record; never fabricate measured-idle/sample evidence or
+use it to bypass platform permissions, signed authorization, or hard budgets.
+Routine stage progression does not require another review of unchanged code.
+See `docs/LOW_OVERHEAD_OPERATION.md` in the portable adapter repository.
 
 For v2, obey decision scope. `stop` with scope=action stops that action, not
 safe primary-agent diagnosis. A goal stop preserves cancellation, explicit hard

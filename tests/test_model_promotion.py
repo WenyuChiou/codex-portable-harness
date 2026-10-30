@@ -171,7 +171,10 @@ class PromotionTests(unittest.TestCase):
             path = model_promotion.attestation_path(home, "mechanical")
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(proof), encoding="utf-8")
-            with patch.object(model_promotion, "current_environment", return_value=environment):
+            with (patch.object(model_promotion, "current_environment", return_value=environment),
+                  patch.object(model_promotion, "datetime", wraps=datetime) as clock):
+                # This case tests missing raw evidence, not the wall-clock date.
+                clock.now.return_value = NOW
                 _, admitted, reason = model_promotion.host_attestation(home, value, "mechanical")
             self.assertFalse(admitted)
             self.assertIn("raw evidence", reason)

@@ -15,6 +15,13 @@ caches, machine identities, or host-local paths.
 
 ## Commands
 
+For already authorized fixed batches, use the boundary-based guidance in
+[Low-overhead orchestration](docs/LOW_OVERHEAD_OPERATION.md). Resource snapshots
+and repeated per-seed approval are not default harness requirements. The
+read-only evaluator supports `--compact` decision summaries. Reproducible offline
+timings, byte counts and their limits are in
+[Overhead measurements](docs/OVERHEAD_MEASUREMENTS.md).
+
 ```text
 python scripts/bootstrap.py --dry-run
 python scripts/bootstrap.py --apply

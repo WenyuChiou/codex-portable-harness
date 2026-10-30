@@ -175,24 +175,50 @@ def _status(root: Path) -> str:
 
 
 def _source_fingerprint(root: Path) -> str:
-    """Hash names, types, link targets, and bytes outside .git metadata."""
+    """Hash tracked and non-ignored source, including uncommitted changes.
+
+    Runtime evidence is deliberately outside this source fingerprint. Tracked
+    files remain covered even if an ignore pattern later matches them. Git's
+    source inventory also avoids opening live locks, checkpoints and virtual
+    environments merely to prove that source code was not changed.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root, capture_output=True, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("cannot inventory source files for fingerprint")
+    entries: set[Path] = set()
+    listed: set[Path] = set()
+    for item in result.stdout.split(b"\0"):
+        if not item:
+            continue
+        relative = Path(item.decode("utf-8"))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError("source inventory escapes repository")
+        entries.add(relative)
+        listed.add(relative)
+        entries.update(parent for parent in relative.parents if parent != Path("."))
     digest = hashlib.sha256()
-    for directory, names, files in os.walk(root, topdown=True, followlinks=False):
-        if Path(directory) == root:
-            names[:] = [name for name in names if name != ".git"]
-        names.sort()
-        for name in sorted(names + files):
-            path = Path(directory) / name
-            relative = path.relative_to(root).as_posix()
+    for relative in sorted(entries, key=lambda value: value.as_posix()):
+        path = root / relative
+        digest.update(relative.as_posix().encode("utf-8"))
+        try:
             info = os.lstat(path)
-            digest.update(relative.encode("utf-8"))
-            digest.update(stat.S_IFMT(info.st_mode).to_bytes(4, "big"))
-            if stat.S_ISLNK(info.st_mode):
-                digest.update(os.readlink(path).encode("utf-8"))
-            elif stat.S_ISREG(info.st_mode):
-                with path.open("rb") as handle:
-                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                        digest.update(chunk)
+        except FileNotFoundError:
+            digest.update(b"missing")
+            continue
+        digest.update(stat.S_IFMT(info.st_mode).to_bytes(4, "big"))
+        if stat.S_ISDIR(info.st_mode) and relative in listed:
+            raise RuntimeError("nested repository source requires an explicit inventory")
+        if stat.S_ISLNK(info.st_mode):
+            digest.update(os.readlink(path).encode("utf-8"))
+        elif stat.S_ISREG(info.st_mode):
+            if not path.resolve().is_relative_to(root.resolve()):
+                raise RuntimeError("source file resolves outside repository")
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
     return digest.hexdigest()
 
 
