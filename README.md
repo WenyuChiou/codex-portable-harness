@@ -9,7 +9,7 @@ Requires Python 3.10 or newer and the SHA-256-pinned `agent-collab-harness`
 v0.5.1 release wheel. Both packages' runtime code uses only the standard
 library.
 
-The repository lives under `~/.codex/portable-harness`, but it is independent
+The repository normally lives under `~/.codex/portable-harness`, but it is independent
 from Codex runtime state. It never carries credentials, sessions, databases,
 caches, machine identities, or host-local paths.
 
@@ -21,6 +21,20 @@ and repeated per-seed approval are not default harness requirements. The
 read-only evaluator supports `--compact` decision summaries. Reproducible offline
 timings, byte counts and their limits are in
 [Overhead measurements](docs/OVERHEAD_MEASUREMENTS.md).
+
+For a new Windows research workstation, use the optional
+[machine setup guide](docs/MACHINE_SETUP.md). It installs the isolated harness
+runtime, the baseline deployment, 17 pinned research skills, four adapted native
+agents, Research Hub, Defuddle and Antigravity; separate checks verify local
+dependencies, the original Python launcher inside the Windows sandbox, and
+opt-in native agent dispatch. Google logins and optional Zotero credentials are
+explicit remaining steps. No credentials or old-machine test evidence transfers.
+
+```powershell
+# Requires Python 3.12, Git, Node/npm, installed Chrome, and authenticated Codex.
+.\setup.ps1                         # write-free plan
+.\setup.ps1 -Apply -RepairPythonAcl -LiveAgents
+```
 
 ```text
 python scripts/bootstrap.py --dry-run
