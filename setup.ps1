@@ -53,6 +53,8 @@ if ($RepairPythonAcl) {
 }
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\verify_installation.py'), '--sandbox', '--save')
 Invoke-Checked $harnessPython @('-B', (Join-Path $repo 'scripts\functional_checks.py'))
+& (Join-Path $repo 'scripts\install_maintenance.ps1') -Apply -Python $harnessPython
+if ($LASTEXITCODE -ne 0) { throw 'Maintenance installation failed' }
 if ($LiveAgents) {
     $liveArgs = @('-B', (Join-Path $repo 'scripts\agent_smoke.py'), '--run')
     if ($ControllerModel) { $liveArgs += @('--controller-model', $ControllerModel) }

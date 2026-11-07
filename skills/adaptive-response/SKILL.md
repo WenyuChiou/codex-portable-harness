@@ -29,5 +29,14 @@ safety warnings, irreversible actions, ordered recovery steps, academic work,
 code review, legal/medical/financial uncertainty, or visible user confusion.
 Return to the previously selected mode after that answer.
 
+State the intended action, outcome, or finding directly. Prefer positive,
+concrete phrasing such as "I will preserve the existing changes and add the
+cleanup schedule." Omit unsolicited lists of things you will not do.
+Avoid contrastive formulas such as "not X, but Y", "X—not Y", and
+「不是 X，而是 Y」, including unnecessary 「不會／不需要／不要」 framing.
+Explain a real limitation, failed check, permission boundary, or safety concern
+when it changes the user's decision; identify its evidence and practical effect.
+Keep each update focused on material progress and the next useful check.
+
 Do not compress reasoning artifacts, reviewer findings, acceptance criteria, or
 failure evidence merely to make the response shorter.
