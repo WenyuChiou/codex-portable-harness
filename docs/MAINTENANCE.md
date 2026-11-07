@@ -30,11 +30,14 @@ count as activity. Recent rollout `cwd` values, the running checkout, and
 A branch or tag must retain HEAD (a descendant tip is sufficient). Otherwise,
 the tool first creates and verifies `refs/heads/maintenance-retained/<HEAD>` in
 the owning repository. It copies **all** ignored files into
-`maintenance/preserved-worktrees/<name>-<unique-id>`, verifies SHA-256, writes a
+`maintenance/preserved-worktrees/<name>-<unique-id>/files`, verifies SHA-256, writes a
 preservation manifest, checks the candidate again, then calls Git's worktree
 removal. Preserved files have no automatic expiry; this conservative default
 also preserves rebuildable ignored caches. Recover those files from the manifest
 before removing their preserved copies manually.
+The manifest records `data_directory: files`, keeping user filenames separate
+from its `preservation.json` receipt. Earlier receipts without `data_directory`
+refer to files directly below their preservation directory and remain valid.
 
 Git calls have a 30-second deadline. Unreadable data, nested repositories,
 submodules, reparse points, locks, Git failures, and concurrent changes block

@@ -215,7 +215,8 @@ def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Pat
                 source = safe(path / name, path)
                 if not source.is_file():
                     raise ValueError(f"unsupported ignored object: {name}")
-                target = safe(backup / name, home)
+                # User filenames live in a separate namespace from receipts.
+                target = safe(backup / "files" / name, home)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 digest = sha256(source)
                 shutil.copy2(source, target)
@@ -223,7 +224,7 @@ def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Pat
                     raise ValueError(f"ignored content changed: {name}")
                 saved.append({"path": name, "sha256": digest})
             if saved:
-                atomic_write_json(backup / "preservation.json", {"source": str(path), "head": head, "files": saved})
+                atomic_write_json(backup / "preservation.json", {"source": str(path), "head": head, "data_directory": "files", "files": saved})
             if signature(path, root)[0] != before or clean_status(path):
                 raise ValueError("candidate changed before removal; preserved copies retained")
             # Git performs its own final clean/untracked check. An intervening

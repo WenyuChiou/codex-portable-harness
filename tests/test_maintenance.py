@@ -79,9 +79,24 @@ class MaintenanceTests(unittest.TestCase):
         m.clean_worktrees(self.home, True, self.now, self.record, set())
         self.assertFalse(wt.exists(), self.events)
         self.assertEqual(m.git(source, 'rev-parse', 'refs/heads/maintenance-retained/'+head).decode().strip(), head)
-        backups = list((self.home/'maintenance/preserved-worktrees').glob('*/private/secret'))
+        backups = list((self.home/'maintenance/preserved-worktrees').glob('*/files/private/secret'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), b'irreplaceable\x00bytes')
+
+    def test_ignored_filename_cannot_collide_with_preservation_manifest(self):
+        source,wt=self.repo()
+        with (wt/'.gitignore').open('a') as stream:stream.write('preservation.json\n')
+        m.git(wt,'add','.gitignore')
+        m.git(wt,'commit','-m','ignore fixture preservation file')
+        payload=b'irreplaceable user preservation document'
+        (wt/'preservation.json').write_bytes(payload)
+        self.age(wt);self.age(source/'.git/worktrees')
+        m.clean_worktrees(self.home,True,self.now,self.record,set())
+        self.assertFalse(wt.exists(),self.events)
+        root=Path(self.events[-1]['preserved'])
+        manifest=json.loads((root/'preservation.json').read_text())
+        self.assertEqual(manifest['data_directory'],'files')
+        self.assertEqual((root/'files/preservation.json').read_bytes(),payload)
 
     def test_preview_recent_and_clone_report_do_not_remove(self):
         source, wt = self.repo()
