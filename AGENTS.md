@@ -1,6 +1,14 @@
 # Repository Contract
 
 - This repository may write only inside the active `CODEX_HOME` directory.
+- Codex worktree maintenance may update preservation refs and the registered
+  worktree metadata in a candidate's owning Git repository. This exception is
+  limited to clean, idle linked worktrees below `CODEX_HOME/worktrees`.
+- Maintenance has one explicit ACL-only exception: a user-selected path or a
+  task-end hook's generated test directories below the current user's
+  `Documents/Codex`. Back up ACLs inside `CODEX_HOME`, retain other principals,
+  grant only the current user, and restore sandbox-owned directories to that
+  user. This exception authorizes no file deletion or Git trust exemptions.
 - Explicitly invoking `repair_windows_python.ps1 -Apply` permits one narrow
   exception: back up ACLs inside `CODEX_HOME`, then add inheritable read/execute
   for the existing `CodexSandboxUsers` group on the virtual environment's

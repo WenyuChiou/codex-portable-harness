@@ -351,11 +351,16 @@ class NativeAcceptanceTests(unittest.TestCase):
                 "param([switch]$Apply, [string]$PythonPath)\n"
                 "if (-not $Apply -or -not $PythonPath) { throw 'Missing repair target' }\n"
                 "Add-Content -LiteralPath (Join-Path $env:CODEX_HOME 'repairs.txt') -Value $PythonPath\nexit 0\n")
+            (repo / "scripts/install_maintenance.ps1").write_text(
+                "param([switch]$Apply, [string]$Python)\n"
+                "if (-not $Apply -or -not $Python) { throw 'Missing maintenance runtime' }\n"
+                "Set-Content -LiteralPath (Join-Path $env:CODEX_HOME 'maintenance.txt') -Value $Python\nexit 0\n")
             literal = lambda path: "'" + str(path).replace("'", "''") + "'"
             command = "function global:git {}; function global:npm {}; function global:codex {}; "
             command += "& " + literal(repo / "setup.ps1") + " -Apply -RepairPythonAcl -Python " + literal(launcher)
             result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, env={**os.environ, "CODEX_HOME": str(home)})
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            self.assertEqual(Path((home / "maintenance.txt").read_text(encoding="utf-8-sig").strip()).resolve(), launcher.resolve())
             repaired = (home / "repairs.txt").read_text(encoding="utf-8-sig").splitlines()
             # Windows runners may expose TEMP through its DOS 8.3 alias;
             # PowerShell expands that alias when resolving CODEX_HOME.

@@ -15,6 +15,12 @@ caches, machine identities, or host-local paths.
 
 ## Commands
 
+Windows setup includes [scheduled Codex maintenance](docs/MAINTENANCE.md):
+clean idle worktrees nightly, verified session compression and expiry, temporary
+file expiry, current-user ACL repair, and request-scoped MCP backend processes.
+Existing installations can preview and install it with
+`scripts/install_maintenance.ps1` and `scripts/install_maintenance.ps1 -Apply`.
+
 For already authorized fixed batches, use the boundary-based guidance in
 [Low-overhead orchestration](docs/LOW_OVERHEAD_OPERATION.md). Resource snapshots
 and repeated per-seed approval are not default harness requirements. The
