@@ -31,8 +31,6 @@ function Repair-One([string]$Item) {
     $acl = Get-Acl -LiteralPath $full
     $owner = $acl.Owner
     $isDirectory = [IO.Directory]::Exists($full)
-    $inheritance = if ($isDirectory) { 'ContainerInherit,ObjectInherit' } else { 'None' }
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inheritance, 'None', 'Allow')
     $hasRule = @($acl.Access | Where-Object {
         $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
         $_.AccessControlType -eq 'Allow' -and
@@ -46,9 +44,15 @@ function Repair-One([string]$Item) {
     if ($Apply) {
         New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($backup)) -Force | Out-Null
         @{path=$full;sddl=$acl.Sddl;owner=$owner} | ConvertTo-Json -Compress | Add-Content -LiteralPath $backup -Encoding UTF8
-        $acl.AddAccessRule($rule)
-        if ($sandboxOwner) { $acl.SetOwner($sid) }
-        Set-Acl -LiteralPath $full -AclObject $acl
+        # Set-Acl can request SACL privileges on sandbox-created descriptors.
+        # icacls edits only the requested DACL/owner sections, preserving audits.
+        $grant = '*' + $sid.Value + ':' + $(if ($isDirectory) { '(OI)(CI)F' } else { 'F' })
+        & icacls.exe $full /grant $grant /C /Q
+        if ($LASTEXITCODE -ne 0) { throw "Current-user DACL grant failed: $full ($LASTEXITCODE)" }
+        if ($sandboxOwner) {
+            & icacls.exe $full /setowner ('*' + $sid.Value) /C /Q
+            if ($LASTEXITCODE -ne 0) { throw "Sandbox ownership restore failed: $full ($LASTEXITCODE)" }
+        }
         $check = Get-Acl -LiteralPath $full
         if ($sandboxOwner -and $check.Owner -eq $owner) { throw "Ownership readback failed: $full" }
         Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop | Select-Object -First 1 | Out-Null
@@ -60,13 +64,17 @@ function Scan([string]$Root) {
     while ($pending.Count) {
         $item = $pending.Pop()
         try {
-            $null = Test-Scope $item
+            # The root and its ancestors were verified once. Each enumerated
+            # child is checked for reparse attributes before traversal.
+            $info = Get-Item -LiteralPath $item -Force
+            if ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
             $leaf = [IO.Path]::GetFileName($item)
             if ($item -eq $Root -or $leaf -match '^(\.ai|\.pytest_cache|pytest-of-.+|temp|tmp)$') { Repair-One $item }
             if ($item -eq $Root) {
                 $gitMarker = Join-Path $item '.git'
                 if (Test-Path -LiteralPath $gitMarker) { Repair-One $gitMarker }
             }
+            if (Test-Path -LiteralPath (Join-Path $item 'pyvenv.cfg') -PathType Leaf) { continue }
             try { $children = @(Get-ChildItem -LiteralPath $item -Directory -Force -ErrorAction Stop) }
             catch { Repair-One $item; $children = @(Get-ChildItem -LiteralPath $item -Directory -Force -ErrorAction Stop) }
             foreach ($child in $children) {

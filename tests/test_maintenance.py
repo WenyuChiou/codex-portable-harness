@@ -223,6 +223,24 @@ class MaintenanceTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             m.run([sys.executable,'-c','import time; time.sleep(30)'],timeout=.1)
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows current-user DACL repair')
+    def test_native_acl_repair_grants_current_user_without_sacl_privilege(self):
+        executable='powershell.exe'
+        sid=subprocess.check_output([executable,'-NoProfile','-Command','[Security.Principal.WindowsIdentity]::GetCurrent().User.Value'],text=True).strip()
+        target=self.home/'cache'
+        target.mkdir()
+        (target/'keep.txt').write_text('accepted bytes')
+        m.run(['icacls.exe',str(target),'/inheritance:r','/grant:r','*'+sid+':(OI)(CI)RX','/Q'])
+        try:
+            result=subprocess.run([executable,'-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'scripts/repair_maintenance_acl.ps1'),'-Apply','-Path',str(target)],
+                                  capture_output=True,env={**os.environ,'CODEX_HOME':str(self.home)},timeout=30)
+            self.assertEqual(result.returncode,0,(result.stdout+result.stderr).decode(errors='replace'))
+            self.assertEqual((target/'keep.txt').read_text(),'accepted bytes')
+            (target/'writable.txt').write_text('grant verified')
+            self.assertTrue(list((self.home/'maintenance/acl-backups').glob('*.jsonl')))
+        finally:
+            m.run(['icacls.exe',str(target),'/grant','*'+sid+':(OI)(CI)F','/Q'])
+
 
 if __name__ == '__main__':
     unittest.main()
