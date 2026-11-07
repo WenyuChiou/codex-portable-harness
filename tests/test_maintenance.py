@@ -111,6 +111,56 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual((wt/'new-user-work.txt').read_text(),'concurrent user work')
         self.assertEqual(self.events[-1]['action'],'blocked')
 
+    def test_other_agent_gitdir_is_retained_before_git_runs(self):
+        _, wt=self.repo()
+        pointer='gitdir: '+str(self.home.parent/'.claude/private.git/worktrees/task')+'\n'
+        with patch.object(Path,'read_text',return_value=pointer):
+            with patch.object(m,'git',side_effect=AssertionError('Git must not read other-agent metadata')) as probe:
+                m.clean_worktrees(self.home,True,self.now,self.record,set())
+        probe.assert_not_called()
+        self.assertTrue(wt.exists())
+        self.assertEqual(self.events[-1]['action'],'blocked')
+
+    def test_other_agent_commondir_is_retained_before_git_runs(self):
+        _,wt=self.repo()
+        _,metadata=m.metadata_hint(wt)
+        original=Path.read_text
+        def supplied_pointer(path,*args,**kwargs):
+            if path == metadata/'commondir': return str(self.home.parent/'.claude/private.git')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'read_text',supplied_pointer):
+            with patch.object(m,'git',side_effect=AssertionError('Git must not read other-agent common metadata')) as probe:
+                m.clean_worktrees(self.home,True,self.now,self.record,set())
+        probe.assert_not_called()
+        self.assertTrue(wt.exists())
+        self.assertEqual(self.events[-1]['action'],'blocked')
+
+    def test_forbidden_lexical_metadata_is_rejected_before_resolution(self):
+        for product in ('.claude','.gemini','.opencode'):
+            with self.subTest(product=product):
+                with patch.object(Path,'resolve',side_effect=AssertionError('forbidden path must not be resolved')) as resolve:
+                    with self.assertRaises(ValueError):
+                        m.allowed_metadata(self.home.parent/product/'repo.git')
+                resolve.assert_not_called()
+        with patch.object(Path,'resolve',return_value=self.home.parent/'.claude/repo.git'):
+            with self.assertRaises(ValueError):
+                m.allowed_metadata(self.home/'otherwise-permitted.git')
+
+    def test_inherited_git_overrides_cannot_redirect_or_trace_cleanup(self):
+        _,wt=self.repo()
+        unrelated=self.home/'unrelated.git'
+        m.run(['git','init','--bare',str(unrelated)])
+        (unrelated/'config').write_text('! intentionally invalid configuration\n')
+        trace=unrelated/'unexpected-trace.log'
+        overrides={'GIT_DIR':str(unrelated),'GIT_COMMON_DIR':str(unrelated),
+                   'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'alias.fixture','GIT_CONFIG_VALUE_0':'bad',
+                   'GIT_TRACE':str(trace)}
+        with patch.dict(os.environ,overrides):
+            m.clean_worktrees(self.home,True,self.now,self.record,set())
+        self.assertFalse(wt.exists(),self.events)
+        self.assertEqual(self.events[-1]['action'],'removed')
+        self.assertFalse(trace.exists())
+
     def test_retention_keeps_newest_and_compresses_verified_content(self):
         newest = self.rollout('sessions', 'newest', 120)
         old = self.rollout('sessions', 'old', 121)

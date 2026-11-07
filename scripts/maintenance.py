@@ -69,9 +69,9 @@ def signature(path: Path, root: Path) -> tuple[str, float, int]:
     return hashlib.sha256(payload).hexdigest(), latest, size
 
 
-def run(args: list[str], timeout: float = 30) -> bytes:
+def run(args: list[str], timeout: float = 30, *, env: dict[str, str] | None = None) -> bytes:
     """No shell; a hung Git probe never becomes permission to delete."""
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
                          start_new_session=os.name != "nt")
     try:
         out, err = p.communicate(timeout=timeout)
@@ -91,7 +91,11 @@ def run(args: list[str], timeout: float = 30) -> bytes:
 
 
 def git(path: Path, *args: str) -> bytes:
-    return run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(path), *args])
+    # Routing, config injection and trace destinations must come from this
+    # inspected repository, not from inherited GIT_* overrides.
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(path), *args], env=env)
 
 
 def recent_cwds(home: Path, now: float) -> set[Path]:
@@ -131,6 +135,28 @@ def clean_status(path: Path) -> bytes:
     return git(path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 
 
+def allowed_metadata(path: Path) -> Path:
+    def check(candidate):
+        if any(part.lower() in {".claude", ".gemini", ".opencode"} for part in candidate.parts):
+            raise ValueError("owning Git metadata belongs to another agent product; candidate retained")
+    check(path)  # Lexical rejection must happen before filesystem resolution.
+    resolved = path.resolve()
+    check(resolved)
+    return resolved
+
+
+def metadata_hint(path: Path) -> tuple[Path, Path]:
+    # Inspect the pointer in Codex scope before launching Git, which would read
+    # the owning repository's configuration. Check commondir before following it.
+    pointer = safe(path / ".git", path).read_text(encoding="utf-8").strip()
+    if not pointer.startswith("gitdir: "):
+        raise ValueError("unsupported worktree Git pointer")
+    metadata = allowed_metadata(path / pointer[len("gitdir: "):])
+    common_file = allowed_metadata(metadata / "commondir")
+    common = allowed_metadata(metadata / common_file.read_text(encoding="utf-8").strip())
+    return common, metadata
+
+
 def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Path]):
     root = home / "worktrees"
     active = recent_cwds(home, now)
@@ -143,8 +169,11 @@ def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Pat
             if any(p == path.resolve() or p.is_relative_to(path.resolve()) for p in pinned | active):
                 record("worktree", path, "active-or-pinned")
                 continue
+            hinted_common, hinted_metadata = metadata_hint(path)
             common = Path(git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip())
             metadata = Path(git(path, "rev-parse", "--absolute-git-dir").decode().strip())
+            if allowed_metadata(common) != hinted_common or allowed_metadata(metadata) != hinted_metadata:
+                raise ValueError("Git metadata pointer changed during inspection")
             # Only a registered linked worktree, never a clone/submodule/arbitrary .git pointer.
             if metadata.parent != common / "worktrees":
                 raise ValueError("unexpected linked worktree metadata")
