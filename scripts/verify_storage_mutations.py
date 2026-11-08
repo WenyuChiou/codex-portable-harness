@@ -40,7 +40,7 @@ CASES = [
     ("config-changed-section", "storage_lifecycle.py", 'if item.get("section_sha256") == entry_hash else now', 'if True else now', L+"test_changed_project_section_restarts_missing_observation"),
     ("sessions-fourteen-days", "maintenance.py", "age <= 14 * DAY", "age <= 30 * DAY", E+"test_fourteen_day_sessions_archive_and_never_expire"),
     ("sessions-no-expiry", "maintenance.py", 'record("session-archive", p, "retained", reason="session-archives-have-no-expiry", bytes=p.stat().st_size)', 'p.unlink()', E+"test_fourteen_day_sessions_archive_and_never_expire"),
-    ("mcp-disabled", "install_maintenance.py", 'changed, count = re.subn(pattern, "", text)', 'changed, count = text, 0', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
+    ("mcp-disabled", "install_maintenance.py", 'return changed, "removed-disabled-server"', 'return text, None', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
     ("task-end-rule", "install_maintenance.py", 'changed_agents = block.sub(TASK_RULE, agents_text) if block.search(agents_text) else agents_text.rstrip()+"\\n\\n"+TASK_RULE', 'changed_agents = agents_text', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
     ("hook-preview", "install_maintenance.py", '''str(runtime / "test_run.py") + '" --clean' ''', '''str(runtime / "test_run.py") + '" --clean --apply' ''', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
     ("heavy-single-suite", "workload.py", "if heavy:", "if False:", E+"test_heavy_execution_waits_for_the_existing_suite"),
@@ -69,7 +69,7 @@ CASES = [
     ("preservation-copy-persistent-pin", "storage_lifecycle.py", ' or not any(absolute(target).is_relative_to(pin) for pin in permanent_pins)', '', L+"test_cleanup_owned_duplicate_cannot_remove_both_restoration_copies"),
     ("preservation-pin-loaded-before-sweep", "storage_lifecycle.py", '    guard.pins.update(permanent_pins)\n', '', L+"test_configured_restoration_pin_survives_later_sweeps"),
     ("preservation-whole-copy-pin", "storage_lifecycle.py", 'absolute(target).is_relative_to(pin)', 'overlaps(absolute(target), pin)', L+"test_partial_restoration_pin_does_not_protect_a_sibling_payload"),
-    ("clone-linked-worktree-owner", "storage_lifecycle.py", 'if os.path.lexists(registry):', 'if False:', L+"test_clone_owning_linked_worktree_preserves_detached_commit"),
+    ("clone-linked-worktree-owner", "storage_lifecycle.py", 'if os.path.lexists(registry):', 'if False:', L+"test_clone_with_empty_worktree_registry_is_retained"),
     ("clone-shallow-backup", "storage_lifecycle.py", 'if git(backup, "rev-parse", "--is-shallow-repository").strip() != b"false":', 'if False:', L+"test_shallow_backup_does_not_authorize_clone_removal"),
     ("clone-partial-backup", "storage_lifecycle.py", 'if partial or any(packs.glob("*.promisor")):', 'if False:', L+"test_partial_or_promisor_backup_does_not_authorize_clone_removal"),
     ("clone-backup-object-closure", "storage_lifecycle.py", '    git(backup, "fsck", "--full", "--no-reflogs", "--no-dangling")\n', '', L+"test_backup_missing_tree_object_does_not_authorize_clone_removal"),
@@ -87,6 +87,13 @@ CASES = [
     ("toml-original-validation", "storage_lifecycle.py", '    validate_toml(text)\n', '', L+"test_invalid_original_toml_is_retained_before_observation"),
     ("toml-result-validation", "storage_lifecycle.py", '    validate_toml(changed)\n', '', L+"test_invalid_pruned_toml_is_retained_before_backup_or_replace"),
     ("toml-parser-unavailable", "storage_lifecycle.py", 'if tomllib is None:\n        record("config", path, "retained", reason="project-pruning-requires-python-3.11-tomllib"); return', 'if False:\n        record("config", path, "retained", reason="project-pruning-requires-python-3.11-tomllib"); return', L+"test_missing_toml_parser_retains_config_without_observation"),
+    ("bare-repository-markers", "storage_lifecycle.py", 'if "head" in names and ("objects" in names or "commondir" in names) and not (item.name.casefold() == ".git" and str(item.parent) in repositories):', 'if False:', L+"test_owned_bare_and_nested_mirror_repositories_are_retained"),
+    ("mcp-string-boundaries", "install_maintenance.py", 'headers = toml_table_boundaries(text)', 'headers = [m.start() for m in re.finditer(r"(?m)^[ \\t]*\\[", text)]', E+"test_mcp_multiline_examples_and_quoted_tables_preserve_unrelated_config"),
+    ("mcp-result-validation", "install_maintenance.py", 'remaining = validate_toml(changed)', 'remaining = {}', E+"test_invalid_mcp_patch_result_blocks_deploy_before_any_write"),
+    ("mcp-parser-capability", "storage_lifecycle.py", 'if tomllib is None:\n        raise ValueError("TOML-editing-requires-python-3.11-tomllib")', 'if False:\n        raise ValueError("TOML-editing-requires-python-3.11-tomllib")', E+"test_mcp_parser_absence_blocks_install_before_any_write"),
+    ("mcp-inline-retained", "install_maintenance.py", 'if not cuts:', 'if False:', E+"test_inline_mcp_definition_is_retained_without_safe_table_edit"),
+    ("bare-marker-casefold", "storage_lifecycle.py", 'names = {entry.name.casefold() for entry in entries}', 'names = {entry.name for entry in entries}', L+"test_case_variant_bare_metadata_is_retained"),
+    ("mcp-semantic-removal", "install_maintenance.py", 'if "codebase-memory-mcp" in remaining.get("mcp_servers", {}):', 'if False:', E+"test_mixed_dotted_mcp_definition_is_retained_before_deployment"),
 ]
 
 

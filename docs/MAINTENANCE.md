@@ -116,7 +116,9 @@ rights remain an explicit failure requiring a narrowly scoped repair.
 
 Installation backs up config and removes the `codebase-memory-mcp` server table
 and its subtables. Other MCP entries stay intact. An already absent server stays
-absent; the installer starts no backend. Reconnection is needed for existing
+absent; the installer starts no backend. Nonempty config requires Python 3.11+
+for standard TOML validation before deployment writes. Inline server definitions
+are retained with an explicit manual-edit error. Reconnection is needed for existing
 clients to adopt a changed config. A future explicit reintroduction must enforce
 one backend per Codex process and cleanup at conversation end. The bundled
 process containment utility remains available to the test runner.
@@ -210,6 +212,10 @@ and proposed config and recognizes table boundaries outside string values. Pytho
 backup procedure. Home-repository Git history and model installations stay outside
 retention. Protected product homes, backup paths and reparse points are rejected
 before traversal.
+
+Bare and mirror repositories are recognized by Git metadata markers even without
+a `.git` child. Owning task folders retain them for manual preservation review;
+ordinary scratch ownership never authorizes deleting their history.
 
 ```powershell
 python scripts/maintenance.py --plan "$env:CODEX_HOME/maintenance/review.json"

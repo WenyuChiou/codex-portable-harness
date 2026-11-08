@@ -128,7 +128,13 @@ def snapshot(path, root, guard):
         elif stat.S_ISDIR(info.st_mode):
             with os.scandir(native(item)) as stream:
                 entries = sorted(stream, key=lambda e: e.name)
-            if any(e.name == ".git" for e in entries):
+            names = {entry.name.casefold() for entry in entries}
+            if ".git" in names:
+                repositories.append(str(item))
+            # Bare/mirror repositories and linked metadata have no .git child.
+            # A normal clone's already-recognized .git is its metadata, not a
+            # second nested repository. Never inspect HEAD/commondir targets.
+            if "head" in names and ("objects" in names or "commondir" in names) and not (item.name.casefold() == ".git" and str(item.parent) in repositories):
                 repositories.append(str(item))
             for entry in entries:
                 # Windows directory enumeration caches metadata that can lag a
@@ -265,7 +271,9 @@ def index_flags_hide_changes(path, git):
 
 
 def clone_retained_elsewhere(path, backup, guard, git):
-    marker = guard.check(path/".git", path)
+    marker = guard.check(path/".git", path, allow_missing=True)
+    if not os.path.lexists(marker):
+        return "bare-or-unclassified-git-manual-review"
     if not stat.S_ISDIR(os.lstat(native(marker)).st_mode):
         return "linked-worktree-other-owner"
     registry = guard.check(marker/"worktrees", path, allow_missing=True)
@@ -504,11 +512,11 @@ PROJECT = re.compile(r'(?m)^\[projects\.("(?:[^"\\\r\n]|\\.)*"|\x27[^\x27\r\n]*\
 
 def validate_toml(text):
     if tomllib is None:
-        raise ValueError("project-pruning-requires-python-3.11-tomllib")
+        raise ValueError("TOML-editing-requires-python-3.11-tomllib")
     return tomllib.loads(text)
 
 
-def project_sections(text):
+def toml_table_boundaries(text):
     validate_toml(text)
     # A complete TOML prefix can end before a real table header, never in an
     # unfinished multiline string or array. Use the standard parser as the lexer
@@ -520,6 +528,11 @@ def project_sections(text):
         except ValueError:
             continue
         headers.append(match.start())
+    return headers
+
+
+def project_sections(text):
+    headers = toml_table_boundaries(text)
     boundaries = set(headers)
     result = []
     for match in PROJECT.finditer(text):

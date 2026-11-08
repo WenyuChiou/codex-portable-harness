@@ -281,6 +281,7 @@ class MaintenanceTests(unittest.TestCase):
             m.clean_tmp(self.home,True,self.now,self.record)
         self.assertEqual(sentinel.read_text(),'keep')
 
+    @unittest.skipIf(sys.version_info < (3,11), 'MCP config edits require stdlib tomllib')
     def test_mcp_patch_preserves_other_settings_and_is_idempotent(self):
         original = '[mcp_servers.codebase-memory-mcp]\ncommand = "backend.exe"\n\n[other]\nvalue = 7\n'
         changed, backend = installer.patch_mcp(original,self.home,sys.executable)

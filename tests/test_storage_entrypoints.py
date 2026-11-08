@@ -17,6 +17,7 @@ import maintenance as m
 import install_maintenance as installer
 import workload
 import task_run as tasks
+import storage_lifecycle as lifecycle
 
 
 class StorageEntrypoints(unittest.TestCase):
@@ -233,6 +234,76 @@ class StorageEntrypoints(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.invoke('--only','storage','--apply','--approved-plan',str(plan),'--plan-sha256',m.sha256(plan))
 
+    @unittest.skipIf(lifecycle.tomllib is None, 'MCP config edits require stdlib tomllib')
+    def test_mcp_multiline_examples_and_quoted_tables_preserve_unrelated_config(self):
+        for delimiter in ('\"\"\"', "'''"):
+            with self.subTest(delimiter=delimiter):
+                prefix = 'developer_instructions=' + delimiter + '\n[mcp_servers.codebase-memory-mcp]\ncommand="example-only"\n' + delimiter + '\n'
+                server = '[mcp_servers."codebase-memory-mcp"]\ncommand="backend"\n[mcp_servers."codebase-memory-mcp".env]\nX="owned"\n'
+                tail = '[mcp_servers.other]\ncommand="keep"\n'
+                original = prefix + server + tail
+                try:
+                    changed, backend = installer.patch_mcp(original, self.home, sys.executable)
+                except ValueError as error:
+                    self.fail('valid multiline config must remain editable: ' + str(error))
+                self.assertEqual(changed, prefix + tail)
+                self.assertEqual(backend, 'removed-disabled-server')
+                self.assertEqual(lifecycle.validate_toml(changed)['mcp_servers'], {'other':{'command':'keep'}})
+
+    @unittest.skipIf(lifecycle.tomllib is None, 'MCP config edits require stdlib tomllib')
+    def test_invalid_mcp_patch_result_blocks_deploy_before_any_write(self):
+        prefix = 'developer_instructions=\"\"\"\n[mcp_servers.codebase-memory-mcp]\ncommand="example"\n\"\"\"\n'
+        server = '[mcp_servers.codebase-memory-mcp]\ncommand="actual"\n'
+        tail = '[other]\nvalue=7\n'
+        original = prefix + server + tail
+        config = self.home/'config.toml'
+        config.write_text(original)
+        bad = [prefix.index('[mcp_servers'), len(prefix), len(prefix)+len(server)]
+        with patch.object(installer, 'toml_table_boundaries', return_value=bad), self.assertRaises(ValueError):
+            installer.deploy(self.home, True, sys.executable)
+        self.assertEqual(config.read_text(), original)
+        self.assertFalse((self.home/'maintenance/runtime').exists())
+        self.assertFalse((self.home/'maintenance/install-backups').exists())
+
+    def test_mcp_parser_absence_blocks_install_before_any_write(self):
+        config = self.home/'config.toml'
+        original = '[mcp_servers.codebase-memory-mcp]\ncommand="keep-until-verified"\n'
+        config.write_text(original)
+        with patch.object(lifecycle, 'tomllib', None):
+            try:
+                installer.deploy(self.home, True, sys.executable)
+            except ValueError as error:
+                self.assertIn('requires-python-3.11', str(error))
+            except Exception as error:
+                self.fail('parser capability must fail explicitly: ' + str(error))
+            else:
+                self.fail('missing parser must stop before installation')
+        self.assertEqual(config.read_text(), original)
+        self.assertFalse((self.home/'maintenance/runtime').exists())
+        self.assertFalse((self.home/'maintenance/install-backups').exists())
+
+    @unittest.skipIf(lifecycle.tomllib is None, 'MCP config edits require stdlib tomllib')
+    def test_mixed_dotted_mcp_definition_is_retained_before_deployment(self):
+        original = 'mcp_servers.codebase-memory-mcp.command="backend"\n[mcp_servers.codebase-memory-mcp.env]\nX="owned"\n'
+        config = self.home/'config.toml'
+        config.write_text(original)
+        with self.assertRaisesRegex(ValueError, 'MCP-definition-remains'):
+            installer.deploy(self.home, True, sys.executable)
+        self.assertEqual(config.read_text(), original)
+        self.assertFalse((self.home/'maintenance/runtime').exists())
+        self.assertFalse((self.home/'maintenance/install-backups').exists())
+
+    @unittest.skipIf(lifecycle.tomllib is None, 'MCP config edits require stdlib tomllib')
+    def test_inline_mcp_definition_is_retained_without_safe_table_edit(self):
+        original = 'mcp_servers={"codebase-memory-mcp"={command="keep"}}\n'
+        config = self.home/'config.toml'
+        config.write_text(original)
+        with self.assertRaisesRegex(ValueError, 'inline-definition'):
+            installer.deploy(self.home, True, sys.executable)
+        self.assertEqual(config.read_text(), original)
+        self.assertFalse((self.home/'maintenance/runtime').exists())
+
+    @unittest.skipIf(lifecycle.tomllib is None, 'MCP config edits require stdlib tomllib')
     def test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once(self):
         original='[mcp_servers.codebase-memory-mcp]\ncommand="old.exe"\n[mcp_servers.codebase-memory-mcp.env]\nX="private"\n[other]\nvalue=7\n'
         (self.home/"config.toml").write_text(original)

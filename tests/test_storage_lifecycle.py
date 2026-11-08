@@ -94,6 +94,41 @@ class StorageLifecycleTests(unittest.TestCase):
                               "clone_backups": {str(candidate): str(source)}}}
         return source, candidate, config
 
+    def test_case_variant_bare_metadata_is_retained(self):
+        backup, _, _ = self.clone('case-bare-source')
+        head = maintenance.git(backup, 'rev-parse', 'HEAD')
+        bare = self.home/'legacy/case-bare'
+        bare.parent.mkdir(parents=True)
+        maintenance.git(self.home, 'clone', '--mirror', str(backup), str(bare))
+        original_head = (bare/'HEAD').read_bytes()
+        (bare/'HEAD').rename(bare/'head')
+        (bare/'objects').rename(bare/'OBJECTS')
+        if os.name == 'nt':
+            self.assertEqual(maintenance.git(bare, 'rev-parse', 'HEAD'), head)
+        self.age(bare)
+        for apply in (False, True):
+            self.sweep({'storage':{'owned_paths':[str(bare)]}}, apply=apply)
+            self.assert_kept(bare)
+            self.assertEqual((bare/'head').read_bytes(), original_head)
+            self.assertTrue((bare/'OBJECTS').is_dir())
+
+    def test_owned_bare_and_nested_mirror_repositories_are_retained(self):
+        backup, _, _ = self.clone('bare-source')
+        head = maintenance.git(backup, 'rev-parse', 'HEAD')
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                task = self.home/'legacy'/('nested' if nested else 'bare-root')
+                bare = task/'history.git' if nested else task
+                bare.parent.mkdir(parents=True, exist_ok=True)
+                maintenance.git(self.home, 'clone', '--mirror', str(backup), str(bare))
+                config = {'storage':{'owned_paths':[str(task)]}}
+                self.age(task)
+                for apply in (False, True):
+                    self.sweep(config, apply=apply)
+                    self.assert_kept(task)
+                    self.assertEqual(maintenance.git(bare, 'rev-parse', 'HEAD'), head)
+                    self.assertEqual(maintenance.git(bare, 'cat-file', '-e', head.decode().strip()), b'')
+
     def test_clone_index_flags_retain_hidden_tracked_edits(self):
         for flag in ('skip-worktree', 'assume-unchanged'):
             with self.subTest(flag=flag):

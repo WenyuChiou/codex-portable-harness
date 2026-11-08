@@ -14,6 +14,7 @@ import uuid
 
 from common import REPO_ROOT, active_codex_home, atomic_write_json, sha256
 from maintenance import safe
+from storage_lifecycle import toml_table_boundaries, validate_toml
 
 FILES = ("common.py", "maintenance.py", "storage_lifecycle.py", "workload.py", "task_run.py", "mcp_lifecycle.py", "test_run.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
 
@@ -53,10 +54,28 @@ def storage_defaults(home):
 
 
 def patch_mcp(text: str, home: Path, python: str):
-    # Narrow line-based patch: all unrelated TOML bytes, comments, and settings stay intact.
-    pattern = r"(?ms)^\[mcp_servers\.codebase-memory-mcp(?:\.[^\]\r\n]+)?\][ \t]*\r?\n.*?(?=^\[|\Z)"
-    changed, count = re.subn(pattern, "", text)
-    return changed, "removed-disabled-server" if count else None
+    if not text.strip():
+        return text, None
+    original = validate_toml(text)
+    if "codebase-memory-mcp" not in original.get("mcp_servers", {}):
+        return text, None
+    headers = toml_table_boundaries(text)
+    cuts = []
+    for index, start in enumerate(headers):
+        line_end = text.find("\n", start)
+        header = text[start:] if line_end < 0 else text[start:line_end+1]
+        table = validate_toml(header)
+        if "codebase-memory-mcp" in table.get("mcp_servers", {}):
+            cuts.append((start, headers[index+1] if index+1 < len(headers) else len(text)))
+    if not cuts:
+        raise ValueError("MCP-inline-definition-requires-manual-config-edit; config retained")
+    changed = text
+    for start, end in reversed(cuts):
+        changed = changed[:start]+changed[end:]
+    remaining = validate_toml(changed)
+    if "codebase-memory-mcp" in remaining.get("mcp_servers", {}):
+        raise ValueError("MCP-definition-remains; config retained for manual edit")
+    return changed, "removed-disabled-server"
 
 
 def deploy(home: Path, apply: bool, python: str):
