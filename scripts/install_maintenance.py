@@ -14,7 +14,7 @@ import uuid
 from common import REPO_ROOT, active_codex_home, atomic_write_json, sha256
 from maintenance import safe
 
-FILES = ("common.py", "maintenance.py", "mcp_lifecycle.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
+FILES = ("common.py", "maintenance.py", "mcp_lifecycle.py", "test_run.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
 
 
 def patch_mcp(text: str, home: Path, python: str):
@@ -62,10 +62,22 @@ def deploy(home: Path, apply: bool, python: str):
     original_hooks = hooks_path.read_text(encoding="utf-8-sig") if hooks_path.exists() else '{}'
     hooks = json.loads(original_hooks)
     command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + str(runtime / "repair_maintenance_acl.ps1") + '" -Apply -Hook'
+    cleanup = '"' + python + '" -B "' + str(runtime / "test_run.py") + '" --clean --apply'
+    cleanup_pattern = r'"[^"\r\n]+" -B "' + re.escape(str(runtime / "test_run.py")) + r'" --clean --apply'
     for event in ("Stop", "SessionEnd"):
         groups = hooks.setdefault("hooks", {}).setdefault(event, [])
         if not any(h.get("command") == command for group in groups for h in group.get("hooks", [])):
             groups.append({"hooks": [{"type": "command", "command": command, "timeout": 60}]})
+        retained = []
+        for group in groups:
+            previous_hooks = group.get("hooks", [])
+            remaining = [h for h in previous_hooks if not re.fullmatch(cleanup_pattern, h.get("command", ""))]
+            group["hooks"] = remaining
+            if remaining or remaining == previous_hooks:
+                retained.append(group)
+        groups[:] = retained
+        owned = next(group for group in groups if any(h.get("command") == command for h in group.get("hooks", [])))
+        owned["hooks"].append({"type": "command", "command": cleanup, "timeout": 60})
     changed_hooks = json.dumps(hooks, ensure_ascii=False, indent=2) + "\n"
     print(json.dumps({"apply": apply, "runtime": str(runtime), "mcp_backend": backend,
                       "config_change": changed_config != original_config, "hook_change": json.loads(original_hooks) != hooks}))
