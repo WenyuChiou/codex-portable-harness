@@ -81,6 +81,8 @@ CASES = [
     ("task-root-utf8", "task_run.py", 'encoding="utf-8"', 'encoding="ascii", errors="replace"', E+"test_task_root_guard_handles_unicode_home"),
     ("home-root-git-env", "task_run.py", "git_env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}", 'git_env = dict(os.environ)', E+"test_task_root_guard_ignores_inherited_git_routing"),
     ("task-handoff-rule", "install_maintenance.py", "- At task end update the project's handoff: progress, output paths, needed\n  worktrees and next step. Use its existing file, or CODEX_HOME/maintenance/handovers/<project>.md.\n", '', E+"test_deployed_rules_require_root_guard_and_project_handoff"),
+    ("clone-index-flags", "storage_lifecycle.py", 'if index_flags_hide_changes(path, git):', 'if False:', L+"test_clone_index_flags_retain_hidden_tracked_edits"),
+    ("worktree-index-flags", "maintenance.py", 'if index_flags_hide_changes(path, git):', 'if False:', "test_maintenance.MaintenanceTests.test_worktree_index_flags_retain_hidden_tracked_edits"),
 ]
 
 
@@ -99,7 +101,7 @@ def main():
             fixture=Path(tmp)
             shutil.copytree(ROOT/"scripts",fixture/"scripts",ignore=shutil.ignore_patterns("__pycache__"))
             (fixture/"tests").mkdir()
-            for filename_test in ("test_storage_lifecycle.py","test_storage_entrypoints.py","test_test_run.py"):
+            for filename_test in ("test_storage_lifecycle.py","test_storage_entrypoints.py","test_test_run.py","test_maintenance.py"):
                 shutil.copy2(ROOT/"tests"/filename_test,fixture/"tests"/filename_test)
             source=fixture/"scripts"/filename
             original=source.read_text(encoding="utf-8")

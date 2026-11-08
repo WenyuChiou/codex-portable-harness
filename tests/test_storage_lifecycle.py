@@ -94,6 +94,21 @@ class StorageLifecycleTests(unittest.TestCase):
                               "clone_backups": {str(candidate): str(source)}}}
         return source, candidate, config
 
+    def test_clone_index_flags_retain_hidden_tracked_edits(self):
+        for flag in ('skip-worktree', 'assume-unchanged'):
+            with self.subTest(flag=flag):
+                backup, candidate, config = self.clone('hidden-' + flag)
+                maintenance.git(candidate, 'update-index', '--' + flag, '--', 'tracked')
+                payload = ('irreplaceable hidden edits ' + flag).encode()
+                self.write(candidate / 'tracked', payload)
+                self.assertEqual(maintenance.git(candidate, 'status', '--porcelain=v1'), b'')
+                self.assertNotEqual((backup / 'tracked').read_bytes(), payload)
+                self.age(candidate)
+                for apply in (False, True):
+                    self.sweep(config, apply=apply)
+                    self.assertEqual(self.assert_kept(candidate)['reason'], 'index-flags-manual-review')
+                    self.assertEqual((candidate / 'tracked').read_bytes(), payload)
+
     def test_clone_owning_linked_worktree_preserves_detached_commit(self):
         backup, candidate, config = self.clone("linked-owner")
         linked = self.home / "surviving-linked-worktree"

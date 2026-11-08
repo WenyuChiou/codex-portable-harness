@@ -253,6 +253,12 @@ def completed_checkpoint(path):
     return status in {"complete", "completed", "failed", "abandoned", "cancelled"} and not references
 
 
+def index_flags_hide_changes(path, git):
+    """Ordinary status omits skip-worktree and assume-unchanged payload edits."""
+    entries = git(path, "ls-files", "-v", "-z").split(b"\0")
+    return any(entry[:1] == b"S" or entry[:1].islower() for entry in entries if entry)
+
+
 def clone_retained_elsewhere(path, backup, guard, git):
     marker = guard.check(path/".git", path)
     if not stat.S_ISDIR(os.lstat(native(marker)).st_mode):
@@ -264,6 +270,8 @@ def clone_retained_elsewhere(path, backup, guard, git):
         return "shared-object-store-manual-review"
     if os.path.lexists(path/".gitmodules"):
         return "submodules-manual-review"
+    if index_flags_hide_changes(path, git):
+        return "index-flags-manual-review"
     if git(path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"):
         return "dirty-without-verified-backup"
     if not backup:

@@ -17,7 +17,7 @@ import time
 import uuid
 
 from common import active_codex_home, atomic_write_json, sha256
-from storage_lifecycle import Guard, snapshot, REBUILDABLE, preserve_capacity, absolute
+from storage_lifecycle import Guard, snapshot, REBUILDABLE, preserve_capacity, absolute, index_flags_hide_changes
 
 DAY = 86400
 OWNER = "codex-portable-harness-maintenance-v1"
@@ -120,6 +120,8 @@ def worktree_candidates(root: Path):
 
 
 def clean_status(path: Path) -> bytes:
+    if index_flags_hide_changes(path, git):
+        return b"index-flags-manual-review"
     return git(path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 
 

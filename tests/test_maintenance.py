@@ -66,6 +66,23 @@ class MaintenanceTests(unittest.TestCase):
         m.clean_worktrees(self.home, True, self.now, self.record, {wt.resolve()})
         self.assertEqual(self.events[-1]['action'], 'active-or-pinned')
 
+    def test_worktree_index_flags_retain_hidden_tracked_edits(self):
+        source, wt = self.repo()
+        for flag in ('skip-worktree', 'assume-unchanged'):
+            with self.subTest(flag=flag):
+                (wt/'tracked').write_text('accepted')
+                m.git(wt, 'update-index', '--' + flag, '--', 'tracked')
+                payload = 'irreplaceable hidden edits ' + flag
+                (wt/'tracked').write_text(payload)
+                self.assertEqual(m.git(wt, 'status', '--porcelain=v1'), b'')
+                self.age(wt); self.age(source/'.git/worktrees')
+                for apply in (False, True):
+                    m.clean_worktrees(self.home, apply, self.now, self.record, set())
+                    self.assertTrue(wt.exists(), self.events)
+                    self.assertEqual(self.events[-1]['action'], 'dirty-report-only')
+                    self.assertEqual((wt/'tracked').read_text(), payload)
+                m.git(wt, 'update-index', '--no-' + flag, '--', 'tracked')
+
     def test_orphan_head_is_retained_before_remove_and_ignored_bytes_survive(self):
         source, wt = self.repo()
         (wt/'tracked').write_text('orphan commit')
