@@ -91,6 +91,31 @@ class StorageLifecycleTests(unittest.TestCase):
                               "clone_backups": {str(candidate): str(source)}}}
         return source, candidate, config
 
+    def test_clone_owning_linked_worktree_preserves_detached_commit(self):
+        backup, candidate, config = self.clone("linked-owner")
+        linked = self.home / "surviving-linked-worktree"
+        maintenance.git(candidate, "worktree", "add", "--detach", str(linked), "HEAD")
+        self.write(linked / "detached", b"unique detached worktree bytes")
+        maintenance.git(linked, "add", "detached")
+        maintenance.git(linked, "commit", "-m", "detached worktree outcome")
+        detached = maintenance.git(linked, "rev-parse", "HEAD").strip()
+        missing = subprocess.run(['git', '-C', str(backup), 'cat-file', '-e', detached.decode()], capture_output=True, timeout=15)
+        self.assertNotEqual(missing.returncode, 0)
+        self.age(candidate)
+        self.sweep(config, apply=False)
+        self.assertEqual(self.event(candidate)["action"], "retained")
+        self.sweep(config)
+        self.assertTrue(candidate.exists())
+        self.assertEqual(maintenance.git(linked, "cat-file", "-t", detached.decode()).strip(), b"commit")
+        self.assertEqual((linked / "detached").read_bytes(), b"unique detached worktree bytes")
+
+    def test_clone_with_empty_worktree_registry_is_retained(self):
+        _, candidate, config = self.clone("empty-registry")
+        (candidate / ".git/worktrees").mkdir()
+        self.age(candidate)
+        self.sweep(config)
+        self.assert_kept(candidate)
+
     def test_expired_outputs_removed_only_after_apply(self):
         paths = [self.write(self.home / relative / "result.bin") for relative in (
             "tmp/task", ".tmp/task", "visualizations/2020/01/01/task",

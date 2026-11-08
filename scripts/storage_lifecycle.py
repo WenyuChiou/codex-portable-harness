@@ -257,6 +257,9 @@ def clone_retained_elsewhere(path, backup, guard, git):
     marker = guard.check(path/".git", path)
     if not stat.S_ISDIR(os.lstat(native(marker)).st_mode):
         return "linked-worktree-other-owner"
+    registry = guard.check(marker/"worktrees", path, allow_missing=True)
+    if os.path.lexists(registry):
+        return "owns-linked-worktree-registry"
     if os.path.lexists(marker/"objects/info/alternates") or os.path.lexists(marker/"commondir"):
         return "shared-object-store-manual-review"
     if os.path.lexists(path/".gitmodules"):

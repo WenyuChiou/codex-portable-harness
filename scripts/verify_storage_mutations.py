@@ -69,6 +69,7 @@ CASES = [
     ("preservation-copy-persistent-pin", "storage_lifecycle.py", ' or not any(absolute(target).is_relative_to(pin) for pin in permanent_pins)', '', L+"test_cleanup_owned_duplicate_cannot_remove_both_restoration_copies"),
     ("preservation-pin-loaded-before-sweep", "storage_lifecycle.py", '    guard.pins.update(permanent_pins)\n', '', L+"test_configured_restoration_pin_survives_later_sweeps"),
     ("preservation-whole-copy-pin", "storage_lifecycle.py", 'absolute(target).is_relative_to(pin)', 'overlaps(absolute(target), pin)', L+"test_partial_restoration_pin_does_not_protect_a_sibling_payload"),
+    ("clone-linked-worktree-owner", "storage_lifecycle.py", 'if os.path.lexists(registry):', 'if False:', L+"test_clone_owning_linked_worktree_preserves_detached_commit"),
 ]
 
 

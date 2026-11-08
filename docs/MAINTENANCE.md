@@ -181,6 +181,9 @@ uses seven days and requires exact ownership. Clone removal requires clean statu
 14 idle days and every HEAD/local branch/tag/stash retained by reachable refs in
 the configured independent `clone_backups` repository. Shared object stores,
 submodules and necessary ignored data retain the clone for inspection.
+Repositories with a `.git/worktrees` registry are retained, including stale or
+empty registries. Their shared objects and detached worktree commits may still
+be required elsewhere; cleanup never prunes that registry to make a clone eligible.
 
 An expired preservation package is removable only when a byte-verified duplicate
 is covered in full by an explicit `storage.pinned` or `pinned_worktrees` setting
