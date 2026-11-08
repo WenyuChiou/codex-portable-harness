@@ -493,9 +493,8 @@ def prune_projects(home, apply, now, record, guard):
         record("config", path, "retained", reason="pinned-or-active"); return
     raw = path.read_bytes()
     text = raw.decode("utf-8")
-    ledger_path = home/"maintenance/missing-projects.json"
+    ledger_path = guard.check(home/"maintenance/missing-projects.json", home, allow_missing=True)
     if os.path.lexists(ledger_path):
-        guard.check(ledger_path, home)
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     else:
         ledger = {}
@@ -531,7 +530,7 @@ def prune_projects(home, apply, now, record, guard):
     if apply:
         if path.read_bytes() != raw:
             raise ValueError("config-changed-concurrently")
-        backup = home/"maintenance/config-backups"/(fingerprint+".toml")
+        backup = guard.check(home/"maintenance/config-backups"/(fingerprint+".toml"), home, allow_missing=True)
         backup.parent.mkdir(parents=True, exist_ok=True)
         if backup.exists() and backup.read_bytes() != raw:
             raise ValueError("config-backup-conflict")

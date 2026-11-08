@@ -61,6 +61,11 @@ CASES = [
     ("clone-fourteen-day-retention", "storage_lifecycle.py", 'elif now - info.latest <= days * DAY:', 'elif True:', L+"test_clone_retention_boundary_is_fourteen_days"),
     ("preview-journal-sync-batching", "maintenance.py", 'if args.apply:\n                    stream.flush()\n                    os.fsync(stream.fileno())', 'if True:\n                    stream.flush()\n                    os.fsync(stream.fileno())', E+"test_preview_syncs_complete_journal_before_plan_without_per_item_flushes"),
     ("preview-journal-final-sync", "maintenance.py", '            stream.flush()\n            os.fsync(stream.fileno())\n        if not args.apply:', '        if not args.apply:', E+"test_preview_syncs_complete_journal_before_plan_without_per_item_flushes"),
+    ("scheduler-home-pin", "maintenance.py", 'if not home.is_relative_to(cwd):', 'if True:', E+"test_scheduler_cwd_keeps_expired_storage_and_session_candidates"),
+    ("complete-rollout-tail", "maintenance.py", 'window = min(limit, window * 2)', 'return latest', E+"test_recent_long_rollout_tail_stays_plain"),
+    ("unknown-rollout-tail", "maintenance.py", 'return max(latest, time.time())', 'return latest', E+"test_oversized_rollout_tail_is_retained_conservatively"),
+    ("config-backup-ancestry", "storage_lifecycle.py", 'backup = guard.check(home/"maintenance/config-backups"/(fingerprint+".toml"), home, allow_missing=True)', 'backup = home/"maintenance/config-backups"/(fingerprint+".toml")', L+"test_config_backup_reparse_keeps_config_and_external_bytes"),
+    ("config-ledger-ancestry", "storage_lifecycle.py", 'ledger_path = guard.check(home/"maintenance/missing-projects.json", home, allow_missing=True)', 'ledger_path = home/"maintenance/missing-projects.json"', L+"test_missing_project_ledger_ancestry_rejected_before_write"),
 ]
 
 

@@ -1,4 +1,5 @@
 import contextlib
+from datetime import datetime, timezone
 import io
 import json
 import os
@@ -108,6 +109,57 @@ class StorageEntrypoints(unittest.TestCase):
         m.retain_sessions(self.home,True,self.now+500*86400,record)
         self.assertTrue(archive.exists())
         self.assertFalse(any(x[2]=="delete-expired" for x in events))
+
+    def test_scheduler_cwd_keeps_expired_storage_and_session_candidates(self):
+        path = self.fixture()
+        area = self.home / "sessions"
+        area.mkdir()
+        old = area / "rollout-old.jsonl"
+        old.write_text('{}\n')
+        os.utime(old, (self.now - 15 * m.DAY,) * 2)
+        latest = area / "rollout-latest.jsonl"
+        latest.write_text('{}\n')
+        os.utime(latest, (self.now,) * 2)
+        for index, cwd in enumerate((self.home, self.home.parent)):
+            with self.subTest(cwd=cwd), patch.object(Path, "cwd", return_value=cwd):
+                plan = self.home / "maintenance" / ("scheduler-" + str(index) + ".json")
+                self.assertEqual(self.invoke("--only", "all", "--plan", str(plan)), 0)
+                entries = json.loads(plan.read_text())["mutations"]
+                self.assertTrue(any(row["path"] == str(path) for row in entries))
+                self.assertTrue(any(row["path"] == str(old) and row["action"] == "compress" for row in entries))
+
+    def test_active_checkout_cwd_remains_pinned(self):
+        checkout = self.home / "tmp" / "checkout"
+        checkout.mkdir(parents=True)
+        (checkout / "uncommitted").write_text("active task bytes")
+        with patch.object(Path, "cwd", return_value=checkout):
+            plan = self.plan()
+        self.assertFalse(any(row["path"] == str(checkout) for row in json.loads(plan.read_text())["mutations"]))
+        self.assertEqual((checkout / "uncommitted").read_text(), "active task bytes")
+
+    def test_recent_long_rollout_tail_stays_plain(self):
+        area = self.home / "sessions"
+        area.mkdir()
+        source = area / "rollout-reopened.jsonl"
+        timestamp = datetime.fromtimestamp(self.now, timezone.utc).isoformat()
+        event = {"timestamp": timestamp, "payload": {"text": "x" * (70 * 1024)}}
+        source.write_text(json.dumps(event) + '\n')
+        os.utime(source, (self.now - 100 * m.DAY,) * 2)
+        latest = area / "rollout-newer-mtime.jsonl"
+        latest.write_text('{}\n')
+        os.utime(latest, (self.now - m.DAY,) * 2)
+        with patch.object(m.time, "time", return_value=self.now):
+            self.assertAlmostEqual(m.rollout_activity(source), self.now, delta=0.001)
+            m.retain_sessions(self.home, True, self.now, lambda *args, **kwargs: None)
+        self.assertTrue(source.exists())
+        self.assertFalse((self.home / "maintenance/session-archives/sessions/rollout-reopened.jsonl.gz").exists())
+
+    def test_oversized_rollout_tail_is_retained_conservatively(self):
+        source = self.home / "unbounded-event.jsonl"
+        source.write_bytes(b'{"timestamp":"incomplete oversized event ' + b'x' * (70 * 1024))
+        os.utime(source, (self.now - 100 * m.DAY,) * 2)
+        with patch.object(m, "ROLLOUT_TAIL_LIMIT", 64 * 1024, create=True), patch.object(m.time, "time", return_value=self.now):
+            self.assertGreaterEqual(m.rollout_activity(source), self.now)
 
     def test_local_rule_changes_require_another_preview(self):
         self.fixture();plan=self.plan()

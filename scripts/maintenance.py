@@ -240,28 +240,42 @@ def stable_stat(path: Path):
     return s.st_size, s.st_mtime_ns, s.st_ino
 
 
+ROLLOUT_TAIL_LIMIT = 8 * 1024 * 1024
+
+
 def rollout_activity(path: Path) -> float:
     # Windows may delay LastWriteTime until an app closes its append handle.
     # Recent event timestamps therefore also protect a reopened older rollout.
     latest = path.stat().st_mtime
     with path.open("rb") as f:
-        size = path.stat().st_size
-        offset = max(0, size - 64 * 1024)
-        f.seek(offset)
-        lines = f.read().splitlines()
-    if offset and lines:
-        lines = lines[1:]  # First line can be truncated by the tail boundary.
-    for line in reversed(lines):
-        try:
-            value = json.loads(line)
-            timestamp = value.get("timestamp")
-            if timestamp:
-                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                if parsed.tzinfo is not None:
-                    return max(latest, parsed.timestamp())
-        except (ValueError, TypeError, AttributeError):
-            continue
-    return latest
+        size = f.seek(0, os.SEEK_END)
+        limit = min(size, ROLLOUT_TAIL_LIMIT)
+        window = min(limit, 64 * 1024)
+        while True:
+            offset = size - window
+            f.seek(offset)
+            tail = f.read(window)
+            # A large final event can occupy the entire initial window. Grow
+            # backward until its start is present, rather than discarding it.
+            if offset:
+                boundary = tail.find(b"\n")
+                tail = tail[boundary + 1:] if boundary >= 0 else b""
+            for line in reversed(tail.splitlines()):
+                try:
+                    value = json.loads(line)
+                    timestamp = value.get("timestamp")
+                    if timestamp:
+                        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        if parsed.tzinfo is not None:
+                            return max(latest, parsed.timestamp())
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            if not offset:
+                return latest
+            if window >= limit:
+                # Unknown activity at the bounded read limit is retained.
+                return max(latest, time.time())
+            window = min(limit, window * 2)
 
 
 def archive_one(source: Path, target: Path, root: Path):
@@ -370,7 +384,10 @@ def main() -> int:
     config = home / "maintenance" / "local.json"
     value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
     source_parent = Path(__file__).resolve().parent
-    pinned = {Path.cwd(), source_parent if source_parent.name == "runtime" else source_parent.parent}
+    pinned = {source_parent if source_parent.name == "runtime" else source_parent.parent}
+    cwd = Path.cwd()
+    if not home.is_relative_to(cwd):
+        pinned.add(cwd)  # Keep active checkouts; scheduler home/ancestors are containers.
     pinned.update(Path(p) for p in value.get("pinned_worktrees", []))
     pinned.update(Path(p) for p in value.get("storage", {}).get("pinned", []))
     guard = Guard(home, pinned, value.get("storage", {}).get("protected", []))

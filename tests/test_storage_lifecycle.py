@@ -438,6 +438,43 @@ class StorageLifecycleTests(unittest.TestCase):
         ledger = json.loads((self.home / "maintenance/missing-projects.json").read_text())
         self.assertEqual(ledger[str(missing)]["first_missing"], self.now + 4 * lifecycle.DAY)
 
+    def link_directory(self, link, target):
+        if os.name == "nt":
+            result = subprocess.run(['cmd', '/d', '/c', 'mklink', '/J', str(link), str(target)], capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.addCleanup(lambda: os.rmdir(link) if os.path.lexists(link) else None)
+        else:
+            link.symlink_to(target, target_is_directory=True)
+            self.addCleanup(lambda: link.unlink() if link.is_symlink() else None)
+
+    def test_config_backup_reparse_keeps_config_and_external_bytes(self):
+        missing = self.home / "gone"
+        raw = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\n').encode()
+        config = self.write(self.home / "config.toml", raw)
+        guard = lifecycle.Guard(self.home)
+        lifecycle.prune_projects(self.home, False, self.now, self.record, guard)
+        outside = self.fixture / "external-backups"
+        outside.mkdir()
+        sentinel = self.write(outside / "keep", b"original target bytes")
+        self.link_directory(self.home / "maintenance/config-backups", outside)
+        with self.assertRaisesRegex(ValueError, "reparse-point"):
+            lifecycle.prune_projects(self.home, True, self.now + 4 * lifecycle.DAY, self.record, guard)
+        self.assertEqual(config.read_bytes(), raw)
+        self.assertEqual(sentinel.read_bytes(), b"original target bytes")
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["keep"])
+
+    def test_missing_project_ledger_ancestry_rejected_before_write(self):
+        missing = self.home / "gone"
+        raw = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\n').encode()
+        config = self.write(self.home / "config.toml", raw)
+        outside = self.fixture / "external-ledger"
+        outside.mkdir()
+        self.link_directory(self.home / "maintenance", outside)
+        with self.assertRaisesRegex(ValueError, "reparse-point"):
+            lifecycle.prune_projects(self.home, False, self.now, self.record, lifecycle.Guard(self.home))
+        self.assertEqual(config.read_bytes(), raw)
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_changed_or_newly_pinned_candidate_cannot_be_removed(self):
         root = self.home / "tmp"
         guard = lifecycle.Guard(self.home)
