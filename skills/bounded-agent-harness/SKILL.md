@@ -10,11 +10,19 @@ under the active Codex home with an explicit `--timeout SECONDS`. Use the
 project's Python to run `test_run.py --timeout SECONDS --pytest -- PYTEST_ARGS`,
 or `test_run.py --timeout SECONDS -- COMMAND ...` for other test runners. Put
 disposable script outputs in `CODEX_TEST_SCRATCH`; keep deliverables in their
-intended location. Success removes owned scratch, failure retains it seven
+intended location. Success removes owned scratch, failure retains it three
 days, and the nightly task handles abandoned runs. This route adds no budget
 checkpoint or orchestration loop for a fixed native test command. If the
 entrypoint is unavailable, report that gap and use an explicitly owned temp
 directory with a foreground timeout and task-end cleanup.
+
+Run other autonomous commands through `maintenance/runtime/task_run.py` with an
+explicit timeout. Shared kernel leases allow three executing jobs and one heavy
+test suite. New scratch stays under `CODEX_HOME/tmp`; new clones and worktrees
+stay under `CODEX_HOME/worktrees`. Before task completion or abandonment, clear
+owned disposable scratch and report retained paths with their reasons. Preserve
+accepted results, required evidence, pins and user changes. Storage maintenance
+previews first and applies only a reviewed plan after user approval.
 
 Use the canonical policy at
 `${CODEX_HOME}/portable-harness/policies/agent-budget.yaml`. If `CODEX_HOME` is

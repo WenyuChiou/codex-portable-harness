@@ -17,6 +17,8 @@ import uuid
 from common import active_codex_home, atomic_write_json, sha256
 from maintenance import safe, tree
 from mcp_lifecycle import WindowsJob, stop
+from workload import work_slot
+from storage_lifecycle import Guard, snapshot, remove
 
 OWNER = "codex-test-run-v1"
 DAY = 86400
@@ -52,13 +54,19 @@ def lease(path):
 def areas(home):
     state = safe(home / "maintenance", home)
     state.mkdir(parents=True, exist_ok=True)
-    root = safe(home / "maintenance/test-runs", home)
+    root = safe(home / "tmp/test-runs", home)
     logs = safe(home / "maintenance/test-logs", home)
     root.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
     safe(root, home)
     safe(logs, home)
     return root, logs
+
+
+def storage_guard(home):
+    local = home/"maintenance/local.json"
+    data = json.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
+    return Guard(home, [*data.get("pinned_worktrees", []), *data.get("storage", {}).get("pinned", [])], data.get("storage", {}).get("protected", []))
 
 
 def remove_owned(path, home):
@@ -76,26 +84,34 @@ def remove_owned(path, home):
                 time.sleep(0.05)
         if not os.path.lexists(path):
             return  # Another session has already cleaned this finished run.
-        safe(path, home / "maintenance/test-runs")
+        root = home/"tmp/test-runs" if path.is_relative_to(home/"tmp/test-runs") else home/"maintenance/test-runs"
+        safe(path, root)
+        guard = storage_guard(home)
+        guard.check(path, root)
         tree(path, home)  # A nested junction or unreadable child blocks removal.
-        shutil.rmtree(path)
+        info = snapshot(path, root, guard)
+        remove(path, root, guard, info.fingerprint)
 
 
-def sweep(home, apply=False, now=None):
+def sweep(home, apply=False, now=None, _legacy=False):
     now = time.time() if now is None else now
     root, logs = areas(home)
+    if _legacy:
+        root = home/"maintenance/test-runs"
+        if not root.exists():
+            return 0
     failures = 0
     for path in root.iterdir():
         if len(path.name) != 32 or any(c not in "0123456789abcdef" for c in path.name):
             continue
         try:
-            safe(path, root)
+            storage_guard(home).check(path, root)
             marker = safe(path / "run.json", root)
             value = json.loads(marker.read_text(encoding="utf-8"))
             if value.get("owner") != OWNER or value.get("id") != path.name:
                 continue
             successful = value.get("state") == "finished" and value.get("exit_code") == 0
-            if not successful and now - value["started"] <= 7 * DAY:
+            if not successful and now - value["started"] <= 3 * DAY:
                 continue  # Task-end hooks never walk a fresh/active run's payload.
             with lease(safe(path / "run.lock", root)):
                 if os.name != "nt" and value.get("state") == "running" and value.get("process_group"):
@@ -105,8 +121,11 @@ def sweep(home, apply=False, now=None):
                         pass
                     else:
                         continue
-                latest = max(p.stat().st_mtime for p in tree(path, home))
-                expired = now - max(latest, value["started"]) > 7 * DAY
+                info = snapshot(path, root, storage_guard(home))
+                if info.pinned:
+                    continue
+                latest = info.latest
+                expired = now - max(latest, value["started"]) > 3 * DAY
                 eligible = successful or expired
             if eligible:
                 print(json.dumps({"test_run": path.name, "action": "remove" if apply else "eligible"}), flush=True)
@@ -127,11 +146,14 @@ def sweep(home, apply=False, now=None):
             print(json.dumps({"test_run": path.name, "action": "blocked", "error": str(exc)}), flush=True)
     for receipt in logs.glob("*.json"):
         try:
-            safe(receipt, logs)
+            storage_guard(home).check(receipt, logs)
             data = json.loads(receipt.read_text(encoding="utf-8"))
             if data.get("owner") != OWNER or receipt.stem != data.get("id") or now - data["finished"] <= 30 * DAY:
                 continue
             log = safe(logs / (receipt.stem + ".log"), logs)
+            guard = storage_guard(home)
+            if snapshot(receipt, logs, guard).pinned or (log.exists() and snapshot(log, logs, guard).pinned):
+                continue
             if log.exists() and sha256(log) != data["log_sha256"]:
                 raise ValueError("test log changed; retained")
             if apply:
@@ -140,10 +162,21 @@ def sweep(home, apply=False, now=None):
         except (OSError, ValueError, KeyError) as exc:
             failures += 1
             print(json.dumps({"test_log": receipt.name, "action": "blocked", "error": str(exc)}), flush=True)
+    if not _legacy and (home/"maintenance/test-runs").exists():
+        failures += sweep(home, apply, now, _legacy=True)
     return 1 if failures else 0
 
 
-def execute(home, command, timeout, pytest_args=None):
+def execute(home, command, timeout, pytest_args=None, heavy=True):
+    if not command or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("a command and positive finite timeout are required")
+    if command[1:3] in (["-m", "pytest"], ["-m", "unittest"]):
+        heavy = True
+    with work_slot(home, heavy=heavy, wait=timeout):
+        return _execute(home, command, timeout, pytest_args)
+
+
+def _execute(home, command, timeout, pytest_args=None):
     if not command or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("a command and positive finite timeout are required")
     if pytest_args is None and len(command) >= 3 and command[1:3] == ["-m", "pytest"]:
@@ -229,6 +262,7 @@ def main():
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--timeout", type=float)
     parser.add_argument("--pytest", action="store_true")
+    parser.add_argument("--light", action="store_true", help="general work: max three processes, no full-suite overlap permission")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     home = active_codex_home()
@@ -238,8 +272,10 @@ def main():
     if args.timeout is None:
         parser.error("--timeout is required")
     if args.pytest:
+        if args.light:
+            parser.error("pytest uses the heavy I/O slot")
         return execute(home, [sys.executable, "-m", "pytest"], args.timeout, pytest_args=command)
-    return execute(home, command, args.timeout)
+    return execute(home, command, args.timeout, heavy=not args.light)
 
 
 if __name__ == "__main__":

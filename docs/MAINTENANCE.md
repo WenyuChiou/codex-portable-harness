@@ -18,10 +18,15 @@ are `CodexHarnessNightlyMaintenance` and `CodexHarnessPermissionRepair` (hourly)
 Reinstallation updates only tasks pointing to this managed runner; a name
 collision fails. Runtime/config drift is reported for inspection.
 
+Installation deploys a **preview-only nightly job** and preview-only Stop /
+SessionEnd scratch sweeps. Permission repair retains its separate ACL-only role.
+Deletion requires an explicit reviewed plan; installation does not approve one.
+
 ## 1. Linked worktrees
 
 The nightly task searches only `CODEX_HOME/worktrees`, up to three container
-levels. Clones are report-only. A candidate must be registered, unlocked,
+levels. Its linked-worktree pass reports clones; the storage pass below evaluates
+explicitly configured clones separately. A candidate must be registered, unlocked,
 completely readable, clean including all untracked files, and idle for more than
 three days. The newest file/directory and Git metadata modification times both
 count as activity. Recent rollout `cwd` values, the running checkout, and
@@ -29,12 +34,15 @@ count as activity. Recent rollout `cwd` values, the running checkout, and
 
 A branch or tag must retain HEAD (a descendant tip is sufficient). Otherwise,
 the tool first creates and verifies `refs/heads/maintenance-retained/<HEAD>` in
-the owning repository. It copies **all** ignored files into
+the owning repository. It copies necessary ignored payloads into
 `maintenance/preserved-worktrees/<name>-<unique-id>/files`, verifies SHA-256, writes a
 preservation manifest, checks the candidate again, then calls Git's worktree
-removal. Preserved files have no automatic expiry; this conservative default
-also preserves rebuildable ignored caches. Recover those files from the manifest
-before removing their preserved copies manually.
+removal. `__pycache__`, `.pytest_cache`, `.mypy_cache` and `.ruff_cache` are
+rebuildable and omitted. A patch, file manifest and required payload bytes make
+recovery possible; a filename list alone cannot restore untracked data. The
+2 GiB preservation cap blocks new removals when a backup would exceed it.
+After 30 days a complete, independently verified duplicate permits expiry;
+sole copies remain retained even when the cap is already exceeded.
 The manifest records `data_directory: files`, keeping user filenames separate
 from its `preservation.json` receipt. Earlier receipts without `data_directory`
 refer to files directly below their preservation directory and remain valid.
@@ -42,8 +50,9 @@ refer to files directly below their preservation directory and remain valid.
 Git calls have a 30-second deadline. Unreadable data, nested repositories,
 submodules, reparse points, locks, Git failures, and concurrent changes block
 that candidate. Each decision is written to a flushed journal. Dirty worktrees
-remain listed for the user. The cleanup never scans `Documents/Codex` for
-deletion; its linked worktrees already have their own cleanup owner.
+remain listed for the user. Existing linked worktrees in `Documents/Codex`
+retain their separate cleanup owner. Its independent clones require an explicit
+scope, a clean tree, 14 idle days and externally reachable retained commits.
 
 ## 2. Rollouts and temporary files
 
@@ -53,9 +62,9 @@ rollout even when Windows has deferred its LastWriteTime update:
 
 | Age | Action |
 | --- | --- |
-| Up to 30 days | Keep plain JSONL |
-| More than 30, up to 90 days | gzip into `maintenance/session-archives/<area>/<relative-name>.gz` |
-| More than 90 days | Delete expired rollout or owned, unmodified gzip |
+| Up to 14 days | Keep plain JSONL |
+| More than 14 days | Verified gzip into `maintenance/session-archives/<area>/<relative-name>.gz` |
+| Existing archives, any age | Keep; session data has no expiry |
 
 The newest rollout in **each** source area always stays as plain JSONL,
 including its `rate_limits` records, even when that newest rollout is old.
@@ -65,8 +74,7 @@ retain original age. A collision keeps the source for inspection. Other files
 in the session directories and runtime databases remain untouched.
 
 Preexisting `rollout-*.jsonl.zst` and `.jsonl.gz` files already satisfy the
-compression step. They expire after 90 days using their preserved modification
-time, while the newest preexisting compressed file in each area is retained.
+compression step. They remain retained at every age.
 They stay in their existing format; handling them adds no zstd dependency.
 
 Compressed conversations require restoring their original JSONL path before
@@ -106,27 +114,12 @@ rights remain an explicit failure requiring a narrowly scoped repair.
 
 ## 4. MCP backend lifetime and Git hangs
 
-For an existing `mcp_servers.codebase-memory-mcp` entry with a plain command and
-no custom argv, installation backs up `config.toml`, then registers a lightweight
-stdio facade. Each request starts a native backend, performs its handshake,
-forwards the request/result, and reaps the backend immediately. The facade stays
-connected to the client and starts another backend for the next request.
-Initialization alone is replayed. Tool calls are never retried automatically.
-
-Deadlines are 30 seconds for startup, 60 seconds for ordinary requests, and 900
-seconds for `index_repository`. Codex's outer tool wait is 960 seconds. A Windows
-Job Object contains the backend before it starts executing, so response, client
-EOF, timeout, or wrapper death also reaps Git descendants. POSIX uses a process
-group. A timeout is returned as an MCP error; the next request remains usable.
-This adapter is intended for the server's stateless tools, not stateful resource
-subscriptions. It adds per-request startup cost and a lightweight facade per
-client connection, while eliminating idle native backends. Existing MCP
-connections need a reload/reconnect to pick up the new command.
-
-The bundled timeout is process-tree containment, including Git, rather than a
-new native setting in codebase-memory-mcp. Custom MCP args and unknown config
-syntax stop automatic migration. Other MCP servers and other products' files
-are outside this installer. Full native server updates remain a separate task.
+Installation backs up config and removes the `codebase-memory-mcp` server table
+and its subtables. Other MCP entries stay intact. An already absent server stays
+absent; the installer starts no backend. Reconnection is needed for existing
+clients to adopt a changed config. A future explicit reintroduction must enforce
+one backend per Codex process and cleanup at conversation end. The bundled
+process containment utility remains available to the test runner.
 
 ## Evidence and recovery
 
@@ -139,7 +132,7 @@ python "$env:USERPROFILE/.codex/maintenance/runtime/test_run.py" --timeout 600 -
 python "$env:USERPROFILE/.codex/maintenance/runtime/test_run.py" --timeout 600 -- python -m unittest discover -s tests -v
 ```
 
-Each invocation owns a unique directory under `maintenance/test-runs`. TEMP,
+Each invocation owns a unique directory under `tmp/test-runs`. TEMP,
 TMP, TMPDIR, coverage, mypy and ruff caches point into that run. Pytest mode
 supplies a unique basetemp and cache_dir; `python -m pytest` commands are also
 recognized. Python bytecode writes are disabled in child processes. Test scripts
@@ -147,7 +140,7 @@ can use `CODEX_TEST_SCRATCH` for their own disposable outputs. Source files and
 deliverables should keep their normal paths.
 
 A successful run removes its scratch immediately. Failed/timeout scratch stays
-for seven days; complete stdout/stderr and its receipt stay in `test-logs` for
+for three days; complete stdout/stderr and its receipt stay in `test-logs` for
 30 days. Stop/SessionEnd hooks and the nightly task sweep abandoned/expired runs,
 skip fresh payloads, respect a live kernel
 lease and retains unreadable or redirected trees. Windows creates the test
@@ -160,14 +153,62 @@ Tests that explicitly write another path still need their own scoped cleanup.
 Existing sessions must adopt this entry point; installing it cannot redirect an
 already-running test. Unrecognized old repo files remain outside its ownership.
 
+Use `task_run.py --timeout SECONDS -- COMMAND ...` for other autonomous commands.
+Three shared kernel leases limit executing managed jobs. Test runs and maintenance
+share one heavy I/O lease; waiting heavy jobs do not consume general slots. Locks
+release on exit/crash. Desktop chat count and commands outside these entrypoints
+are outside this process limit. New clones and worktrees belong under
+`CODEX_HOME/worktrees`; new scratch belongs under `CODEX_HOME/tmp`.
+
+## Storage plans and retention
+
+`maintenance/local.json` contains host-local `storage` settings: `legacy_roots`,
+`legacy_paths`, `clone_roots`, exact `owned_paths`, `clone_backups`, `pinned`,
+and optional additional `protected` paths. Shared TEMP names alone establish no
+ownership. Missing/unreadable/redirected candidates are retained and journaled.
+All policies retain activity within three days (including creation time), pins,
+accepted outcomes and unbacked user edits. Ancestor pin files are `.codex-pin`,
+`.maintenance-pin` or `.lifecycle-pin`.
+
+Outputs in visualizations/generated_images/harness-runs and harness artifacts /
+evidence expire after 30 days. Git-tracked outcomes and checkpoint references
+protect accepted results. Unreadable/oversized checkpoint reference indexes retain
+potentially referenced harness outputs. Completed, unreferenced checkpoints expire
+after 30 days; unknown state requires a completion receipt. Reports/logs and
+installation/config/schedule backups use 30 days; ACL backups use 90 days. The
+newest rollback installation/ACL backup remains retained. Shared legacy scratch
+uses seven days and requires exact ownership. Clone removal requires clean status,
+14 idle days and every HEAD/local branch/tag/stash retained by reachable refs in
+the configured independent `clone_backups` repository. Shared object stores,
+submodules and necessary ignored data retain the clone for inspection.
+
+Project TOML sections expire only after a missing-path observation lasting more
+than three days. Other TOML bytes are preserved, config is backed up, and concurrent
+changes stop the write. SQLite databases require a separate offline, verified
+backup procedure. Home-repository Git history and model installations stay outside
+retention. Protected product homes, backup paths and reparse points are rejected
+before traversal.
+
+```powershell
+python scripts/maintenance.py --plan "$env:CODEX_HOME/maintenance/review.json"
+# After reviewing that exact plan and receiving user approval:
+python scripts/maintenance.py --apply --approved-plan "$env:CODEX_HOME/maintenance/review.json" --plan-sha256 REVIEWED_SHA256
+```
+
+Plan identity covers runtime/local rules and each candidate fingerprint. Apply
+rechecks status, pins, activity and ownership; new/changed candidates require a
+new preview. Each intent, retained decision, removal or block goes into a flushed
+journal. Compression input bytes are reported separately from deletion bytes;
+actual compression savings and physical disk savings are unknown before apply.
+
 `maintenance/reports` holds decision journals; `maintenance/logs` holds complete
 scheduled stdout/stderr and failed targets. `install-backups` retains the prior
 config, hooks and runtime ownership manifest. Review these local records before
 repeating a failed mutation. Logs, sessions, preserved files, host paths, and
 machine identities belong only in the local Codex home, never in this repository.
 
-To pause scheduling, disable the two named tasks. Restore the backed-up MCP entry
-and remove only the two maintenance hook entries to undo integration. Runtime
+To pause scheduling, disable the two named tasks. Restore backed-up config only
+after reviewing its scope, and remove owned hook entries to undo integration. Runtime
 ownership hashes protect local edits during later installation. The portable
 Python retention CLI can be invoked manually on other platforms; Windows setup
 is the scheduling entry point supplied by this change.

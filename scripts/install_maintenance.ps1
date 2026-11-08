@@ -17,9 +17,15 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances 
 $daily = New-ScheduledTaskTrigger -Daily -At $NightlyAt
 $hourly = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(5)) -RepetitionInterval (New-TimeSpan -Hours 1)
 foreach ($entry in @(@{name='CodexHarnessNightlyMaintenance';mode='Nightly';trigger=$daily},@{name='CodexHarnessPermissionRepair';mode='Permissions';trigger=$hourly})) {
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $runner + '" -CodexHome "' + $codexRoot + '" -Mode ' + $entry.mode + ' -Apply') -WorkingDirectory $codexRoot
+    $applyArgument = if ($entry.mode -eq 'Permissions') { ' -Apply' } else { '' }
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $runner + '" -CodexHome "' + $codexRoot + '" -Mode ' + $entry.mode + $applyArgument) -WorkingDirectory $codexRoot
     $existing = Get-ScheduledTask -TaskName $entry.name -ErrorAction SilentlyContinue
     if ($existing -and (@($existing.Actions | Where-Object { $_.Arguments -notlike ('*' + $runner + '*') }).Count -gt 0)) { throw "Unowned scheduled task collision: $($entry.name)" }
+    if ($existing) {
+        $backupDir = Join-Path $codexRoot 'maintenance\schedule-backups'
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+        Export-ScheduledTask -TaskName $entry.name | Set-Content -LiteralPath (Join-Path $backupDir ($entry.name + '-' + [guid]::NewGuid().ToString('N') + '.xml')) -Encoding UTF8
+    }
     Register-ScheduledTask -TaskName $entry.name -Action $action -Trigger $entry.trigger -Settings $settings -Principal $principal -Description 'Codex portable harness owned maintenance; see CODEX_HOME/maintenance' -Force | Out-Null
     Get-ScheduledTask -TaskName $entry.name | Select-Object TaskName,State
 }

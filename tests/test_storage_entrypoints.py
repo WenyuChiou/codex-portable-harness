@@ -1,0 +1,170 @@
+import contextlib
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
+import maintenance as m
+import install_maintenance as installer
+import workload
+
+
+class StorageEntrypoints(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)/"codex"
+        self.home.mkdir()
+        (self.home/"maintenance").mkdir()
+        (self.home/"maintenance/local.json").write_text(json.dumps({"storage":{"pinned":[str(self.home/"maintenance/reports")]}}))
+        self.now = time.time()+200*86400
+
+    def invoke(self, *args):
+        with patch.object(m, "active_codex_home", return_value=self.home), patch.object(m.time, "time", return_value=self.now), patch.object(sys, "argv", ["maintenance.py", *args]), contextlib.redirect_stdout(io.StringIO()):
+            return m.main()
+
+    def fixture(self):
+        path=self.home/"visualizations/2025/01/01/old-output"
+        path.mkdir(parents=True)
+        (path/"payload").write_text("owned output")
+        return path
+
+    def plan(self):
+        target=self.home/"maintenance/preview.json"
+        self.assertEqual(self.invoke("--only", "storage", "--plan", str(target)), 0)
+        return target
+
+    def test_preview_is_nondestructive_and_records_plan(self):
+        path=self.fixture()
+        plan=self.plan()
+        self.assertTrue(path.exists())
+        data=json.loads(plan.read_text())
+        self.assertTrue(any(x["path"]==str(path) for x in data["mutations"]))
+        journals=list((self.home/"maintenance/reports").glob("*.jsonl"))
+        events=[json.loads(line) for line in journals[0].read_text().splitlines()]
+        self.assertTrue(any(x["action"]=="delete-expired" and not x["apply"] for x in events))
+
+    def test_apply_requires_reviewed_plan_and_matching_hash(self):
+        self.fixture()
+        with self.assertRaises(SystemExit):
+            self.invoke("--apply")
+        plan=self.plan()
+        with self.assertRaises(SystemExit):
+            self.invoke("--only", "storage", "--apply", "--approved-plan", str(plan), "--plan-sha256", "0"*64)
+
+    def test_matching_apply_removes_only_the_reviewed_candidate(self):
+        path=self.fixture()
+        plan=self.plan()
+        self.assertEqual(self.invoke("--only", "storage", "--apply", "--approved-plan", str(plan), "--plan-sha256", m.sha256(plan)), 0)
+        self.assertFalse(path.exists())
+        self.assertTrue(plan.exists())
+
+    def test_changed_and_new_candidates_are_retained_after_preview(self):
+        path=self.fixture()
+        plan=self.plan()
+        (path/"payload").write_text("changed after review")
+        new=self.home/"visualizations/new"
+        new.mkdir();(new/"payload").write_text("not reviewed")
+        self.assertEqual(self.invoke("--only", "storage", "--apply", "--approved-plan", str(plan), "--plan-sha256", m.sha256(plan)), 1)
+        self.assertTrue(path.exists())
+        self.assertTrue(new.exists())
+
+    def test_fourteen_day_sessions_archive_and_never_expire(self):
+        area=self.home/"sessions";area.mkdir()
+        source=area/"rollout-old.jsonl";latest=area/"rollout-new.jsonl"
+        source.write_text('{"payload":{"rate_limits":{}}}\n');latest.write_text('{}\n')
+        os.utime(source,(self.now-15*86400,)*2)
+        os.utime(latest,(self.now,)*2)
+        events=[]
+        record=lambda kind,path,action,**details:events.append((kind,str(path),action,details))
+        m.retain_sessions(self.home,True,self.now,record)
+        archive=self.home/"maintenance/session-archives/sessions/rollout-old.jsonl.gz"
+        self.assertTrue(archive.exists())
+        self.assertTrue(latest.exists())
+        m.retain_sessions(self.home,True,self.now+500*86400,record)
+        self.assertTrue(archive.exists())
+        self.assertFalse(any(x[2]=="delete-expired" for x in events))
+
+    def test_local_rule_changes_require_another_preview(self):
+        self.fixture();plan=self.plan()
+        local=self.home/'maintenance/local.json'
+        value=json.loads(local.read_text());value['storage']['owned_paths']=['changed-scope']
+        local.write_text(json.dumps(value))
+        with self.assertRaises(SystemExit):
+            self.invoke('--only','storage','--apply','--approved-plan',str(plan),'--plan-sha256',m.sha256(plan))
+
+    def test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once(self):
+        original='[mcp_servers.codebase-memory-mcp]\ncommand="old.exe"\n[mcp_servers.codebase-memory-mcp.env]\nX="private"\n[other]\nvalue=7\n'
+        (self.home/"config.toml").write_text(original)
+        (self.home/"AGENTS.md").write_text("Existing user rule\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.deploy(self.home,True,sys.executable)
+            installer.deploy(self.home,True,sys.executable)
+        self.assertEqual((self.home/"config.toml").read_text(),'[other]\nvalue=7\n')
+        agents=(self.home/"AGENTS.md").read_text()
+        self.assertTrue(agents.startswith("Existing user rule\n"))
+        self.assertEqual(agents.count("<!-- codex-storage-lifecycle:start -->"),1)
+        hooks=json.loads((self.home/"hooks.json").read_text())
+        for event in ("Stop","SessionEnd"):
+            clean=[h['command'] for group in hooks['hooks'][event] for h in group['hooks'] if 'test_run.py' in h['command']]
+            self.assertEqual(len(clean),1)
+            self.assertNotIn('--apply',clean[0])
+
+    def test_heavy_execution_waits_for_the_existing_suite(self):
+        marker=self.home/"unexpected-execution"
+        script=Path(m.__file__).with_name("test_run.py")
+        with workload.work_slot(self.home,heavy=True):
+            result=subprocess.run([sys.executable,str(script),'--timeout','.3','--',sys.executable,'-c',"from pathlib import Path;Path(__import__('sys').argv[1]).touch()",str(marker)],env={**os.environ,'CODEX_HOME':str(self.home)},capture_output=True,timeout=10)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'heavy workload slot wait expired',result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_three_general_jobs_block_the_fourth_and_release_on_exit(self):
+        code="import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from workload import work_slot\nwith work_slot(Path(sys.argv[2]),heavy=False,wait=.2):print('acquired')"
+        command=[sys.executable,'-c',code,str(Path(workload.__file__).parent),str(self.home)]
+        with contextlib.ExitStack() as leases:
+            for _ in range(3):leases.enter_context(workload.work_slot(self.home,heavy=False))
+            blocked=subprocess.run(command,capture_output=True,timeout=10)
+            self.assertNotEqual(blocked.returncode,0)
+            self.assertIn(b'three executing jobs already hold slots',blocked.stderr)
+        released=subprocess.run(command,capture_output=True,timeout=10)
+        self.assertEqual(released.returncode,0,released.stderr)
+        self.assertIn(b'acquired',released.stdout)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows directory enumeration cache')
+    def test_fresh_metadata_ignores_stale_directory_entry_attributes(self):
+        import storage_lifecycle as storage
+        path=self.fixture();guard=storage.Guard(self.home)
+        expected=storage.snapshot(path,path.parent,guard).fingerprint
+        real_scandir=os.scandir
+        class Entry:
+            def __init__(self,entry):self.entry,self.name=entry,entry.name
+            def stat(self,**kwargs):
+                info=self.entry.stat(**kwargs)
+                fields={key:getattr(info,key) for key in ('st_mode','st_size','st_mtime','st_mtime_ns','st_ino')}
+                fields.update(st_birthtime=getattr(info,'st_birthtime',0),st_size=info.st_size+1)
+                return SimpleNamespace(**fields)
+        @contextlib.contextmanager
+        def cached(directory):
+            with real_scandir(directory) as entries:yield [Entry(entry) for entry in entries]
+        with patch.object(os,'scandir',side_effect=cached):
+            actual=storage.snapshot(path,path.parent,guard).fingerprint
+        self.assertEqual(actual,expected)
+
+    def test_ancestor_pin_protects_old_output_children(self):
+        path=self.fixture()
+        (self.home/'visualizations/.codex-pin').touch()
+        plan=self.plan()
+        self.assertFalse(any(x['path']==str(path) for x in json.loads(plan.read_text())['mutations']))
+        self.assertTrue(path.exists())
+
+
+if __name__ == '__main__':unittest.main()

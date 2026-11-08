@@ -192,7 +192,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(newest2.exists())
         self.assertAlmostEqual(target.stat().st_mtime, self.now-40*m.DAY, places=3)
         m.retain_sessions(self.home, True, self.now+51*m.DAY, self.record)
-        self.assertFalse(target.exists())
+        self.assertTrue(target.exists())  # Session archives have no expiry.
 
     def test_archive_collision_keeps_source(self):
         raw = self.rollout('sessions','source',40)
@@ -204,7 +204,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(raw.exists())
         self.assertEqual(target.read_bytes(),b'original')
 
-    def test_existing_native_compressed_archives_expire_and_newest_is_preserved(self):
+    def test_existing_native_compressed_archives_have_no_expiry(self):
         area=self.home/'archived_sessions'
         area.mkdir()
         for name,days in [('old',100),('latest',95),('recent',45)]:
@@ -212,8 +212,8 @@ class MaintenanceTests(unittest.TestCase):
             p.write_bytes(b'preexisting native archive')
             os.utime(p,(self.now-days*m.DAY,)*2)
         m.retain_sessions(self.home,True,self.now,self.record)
-        self.assertFalse((area/'rollout-old.jsonl.zst').exists())
-        self.assertFalse((area/'rollout-latest.jsonl.zst').exists())
+        self.assertTrue((area/'rollout-old.jsonl.zst').exists())
+        self.assertTrue((area/'rollout-latest.jsonl.zst').exists())
         self.assertTrue((area/'rollout-recent.jsonl.zst').exists())
 
     def test_recent_event_protects_rollout_with_stale_windows_mtime(self):
@@ -267,9 +267,9 @@ class MaintenanceTests(unittest.TestCase):
     def test_mcp_patch_preserves_other_settings_and_is_idempotent(self):
         original = '[mcp_servers.codebase-memory-mcp]\ncommand = "backend.exe"\n\n[other]\nvalue = 7\n'
         changed, backend = installer.patch_mcp(original,self.home,sys.executable)
-        self.assertEqual(backend,'backend.exe')
+        self.assertEqual(backend,'removed-disabled-server')
         self.assertIn('[other]\nvalue = 7\n',changed)
-        self.assertIn('tool_timeout_sec = 960',changed)
+        self.assertNotIn('codebase-memory-mcp',changed)
         self.assertEqual(installer.patch_mcp(changed,self.home,sys.executable)[0],changed)
 
     def test_installer_preserves_hooks_and_rejects_user_runtime_edit(self):

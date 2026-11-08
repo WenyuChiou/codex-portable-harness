@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -14,36 +15,44 @@ import uuid
 from common import REPO_ROOT, active_codex_home, atomic_write_json, sha256
 from maintenance import safe
 
-FILES = ("common.py", "maintenance.py", "mcp_lifecycle.py", "test_run.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
+FILES = ("common.py", "maintenance.py", "storage_lifecycle.py", "workload.py", "task_run.py", "mcp_lifecycle.py", "test_run.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
+
+TASK_RULE = """<!-- codex-storage-lifecycle:start -->
+## Task storage and load
+- Put new scratch in CODEX_HOME/tmp/<task-id> and new clones/worktrees in
+  CODEX_HOME/worktrees. Run autonomous commands through maintenance/runtime/task_run.py
+  with an explicit timeout; use test_run.py for tests (one heavy suite at a time).
+- Before completing or abandoning a task, remove its owned disposable scratch;
+  retain failed scratch three days. Report retained paths and their reason.
+  Preserve accepted results, required evidence, user changes and pinned data.
+- Keep at most three executing autonomous jobs. Idle chats hold no job slot.
+  Use bounded GitHub checks on a meaningful change; avoid rapid API polling.
+- Maintenance previews first. Apply only a reviewed plan after user approval.
+<!-- codex-storage-lifecycle:end -->
+"""
+
+
+def storage_defaults(home):
+    """Locate legacy roots without claiming ownership of their contents."""
+    user = Path.home()
+    legacy = [user/"AppData/Local/Temp"] if os.name == "nt" else [Path(os.environ.get("TMPDIR", "/tmp"))]
+    exact = [user/"temp-archive-2026-10-31"]
+    if os.name == "nt":
+        drive = Path(os.environ.get("SystemDrive", "C:")+"/")
+        legacy.append(drive/"temp")
+        patterns = ("stage*", "tmp*", "codex*", "s1*", "s2*", "s3*", "s4*", "pfc-dev-locks", "nonexistent", "node_modules", "home", "mnt")
+        with os.scandir(drive) as entries:
+            exact.extend(drive/e.name for e in entries if any(fnmatch.fnmatchcase(e.name.casefold(), p) for p in patterns))
+    return {"legacy_roots": list(dict.fromkeys(map(str, legacy))), "legacy_paths": list(map(str, exact)),
+            "clone_roots": [str(user/"Documents/Codex"), str(home/"worktrees/clones")],
+            "owned_paths": [], "clone_backups": {}, "pinned": []}
 
 
 def patch_mcp(text: str, home: Path, python: str):
     # Narrow line-based patch: all unrelated TOML bytes, comments, and settings stay intact.
-    match = re.search(r"(?ms)^\[mcp_servers\.codebase-memory-mcp\]\s*\n(.*?)(?=^\[|\Z)", text)
-    if not match:
-        return text, None
-    section = match.group(1)
-    command = re.search(r"(?m)^command\s*=\s*(.+?)\s*$", section)
-    if not command:
-        raise ValueError("MCP command missing")
-    token = command.group(1)
-    if token.startswith('"'):
-        backend = json.loads(token)
-    elif token.startswith("'") and token.endswith("'"):
-        backend = token[1:-1]
-    else:
-        raise ValueError("unsupported MCP command syntax; preserve and inspect")
-    if "mcp_lifecycle.py" in section:
-        return text, "already-managed"
-    # Native server presently has no args. Preserve customized argv via an explicit review.
-    if re.search(r"(?m)^args\s*=", section):
-        raise ValueError("custom MCP args require an explicit migration")
-    args = [str(home / "maintenance/runtime/mcp_lifecycle.py"), "--", backend]
-    section = section[:command.start()] + "command = " + json.dumps(python) + "\nargs = " + json.dumps(args) + section[command.end():]
-    for key, value in (("startup_timeout_sec", 45), ("tool_timeout_sec", 960)):
-        pattern = rf"(?m)^{key}\s*=.*$"
-        section = re.sub(pattern, f"{key} = {value}", section) if re.search(pattern, section) else section.rstrip() + f"\n{key} = {value}\n\n"
-    return text[:match.start(1)] + section + text[match.end(1):], backend
+    pattern = r"(?ms)^\[mcp_servers\.codebase-memory-mcp(?:\.[^\]\r\n]+)?\][ \t]*\r?\n.*?(?=^\[|\Z)"
+    changed, count = re.subn(pattern, "", text)
+    return changed, "removed-disabled-server" if count else None
 
 
 def deploy(home: Path, apply: bool, python: str):
@@ -62,8 +71,8 @@ def deploy(home: Path, apply: bool, python: str):
     original_hooks = hooks_path.read_text(encoding="utf-8-sig") if hooks_path.exists() else '{}'
     hooks = json.loads(original_hooks)
     command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + str(runtime / "repair_maintenance_acl.ps1") + '" -Apply -Hook'
-    cleanup = '"' + python + '" -B "' + str(runtime / "test_run.py") + '" --clean --apply'
-    cleanup_pattern = r'"[^"\r\n]+" -B "' + re.escape(str(runtime / "test_run.py")) + r'" --clean --apply'
+    cleanup = '"' + python + '" -B "' + str(runtime / "test_run.py") + '" --clean'
+    cleanup_pattern = r'"[^"\r\n]+" -B "' + re.escape(str(runtime / "test_run.py")) + r'" --clean(?: --apply)?'
     for event in ("Stop", "SessionEnd"):
         groups = hooks.setdefault("hooks", {}).setdefault(event, [])
         if not any(h.get("command") == command for group in groups for h in group.get("hooks", [])):
@@ -79,6 +88,17 @@ def deploy(home: Path, apply: bool, python: str):
         owned = next(group for group in groups if any(h.get("command") == command for h in group.get("hooks", [])))
         owned["hooks"].append({"type": "command", "command": cleanup, "timeout": 60})
     changed_hooks = json.dumps(hooks, ensure_ascii=False, indent=2) + "\n"
+    agents = safe(home/"AGENTS.md", home)
+    agents_raw = agents.read_bytes() if agents.exists() else b""
+    agents_text = agents_raw.decode("utf-8")
+    block = re.compile(r"(?ms)^<!-- codex-storage-lifecycle:start -->.*?^<!-- codex-storage-lifecycle:end -->\r?\n?")
+    changed_agents = block.sub(TASK_RULE, agents_text) if block.search(agents_text) else agents_text.rstrip()+"\n\n"+TASK_RULE
+    local = safe(state/"local.json", home)
+    local_raw = local.read_bytes() if local.exists() else b""
+    local_value = json.loads(local_raw) if local_raw else {}
+    local_storage = local_value.setdefault("storage", {})
+    for key, data in storage_defaults(home).items():
+        local_storage.setdefault(key, data)
     print(json.dumps({"apply": apply, "runtime": str(runtime), "mcp_backend": backend,
                       "config_change": changed_config != original_config, "hook_change": json.loads(original_hooks) != hooks}))
     if not apply:
@@ -86,7 +106,7 @@ def deploy(home: Path, apply: bool, python: str):
     runtime.mkdir(parents=True, exist_ok=True)
     backups = safe(state / "install-backups" / (time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex), home)
     backups.mkdir(parents=True)
-    for path in (config, hooks_path, manifest_path):
+    for path in (config, hooks_path, manifest_path, agents, local):
         if path.exists():
             shutil.copy2(path, backups / path.name)
     for name in FILES:
@@ -106,6 +126,20 @@ def deploy(home: Path, apply: bool, python: str):
         if hooks_path.exists() and hooks_path.read_text(encoding="utf-8-sig") != original_hooks:
             raise ValueError("hooks changed concurrently; backup retained")
         atomic_write_json(hooks_path, hooks)
+    current_agents = agents.read_bytes() if agents.exists() else b""
+    if current_agents != agents_raw:
+        raise ValueError("AGENTS.md changed concurrently")
+    if changed_agents != agents_text:
+        temporary = safe(home/"AGENTS.md.storage-new", home)
+        with temporary.open("xb") as stream:
+            stream.write(changed_agents.encode("utf-8")); stream.flush(); os.fsync(stream.fileno())
+        if (agents.read_bytes() if agents.exists() else b"") != agents_raw:
+            temporary.unlink(); raise ValueError("AGENTS.md changed concurrently")
+        os.replace(temporary, agents)
+    if (local.read_bytes() if local.exists() else b"") != local_raw:
+        raise ValueError("local storage settings changed concurrently")
+    if not local_raw or json.loads(local_raw) != local_value:
+        atomic_write_json(local, local_value)
 
 
 def main():
