@@ -544,6 +544,63 @@ class StorageLifecycleTests(unittest.TestCase):
         self.assertTrue((source / "drop/needed.bin").exists())
         self.assertEqual((source / "drop/needed.bin").read_bytes(), b"irreplaceable sibling bytes")
 
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
+    def test_multiline_toml_headers_are_values_not_project_boundaries(self):
+        for label, delimiter in (('basic', '\"\"\"'), ('literal', "'''")):
+            with self.subTest(delimiter=delimiter):
+                missing = self.home / ('real-gone-' + label)
+                fake = self.home / 'example-gone'
+                prefix = 'developer_instructions = ' + delimiter + '\n[projects.' + json.dumps(str(fake)) + ']\ntrust_level="trusted"\n' + delimiter + '\n'
+                section = '[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\nnotes=' + delimiter + '\n[example_table]\n' + delimiter + '\n'
+                tail = '[features]\ncustom=true\n'
+                raw = (prefix + section + tail).encode()
+                tomllib.loads(raw.decode())
+                config = self.write(self.home / 'config.toml', raw)
+                guard = lifecycle.Guard(self.home)
+                lifecycle.prune_projects(self.home, False, self.now, self.record, guard)
+                ledger = json.loads((self.home/'maintenance/missing-projects.json').read_text())
+                self.assertNotIn(str(fake), ledger)
+                lifecycle.prune_projects(self.home, True, self.now + 4*lifecycle.DAY, self.record, guard)
+                self.assertEqual(config.read_bytes(), (prefix + tail).encode())
+                self.assertEqual(tomllib.loads(config.read_text())['features'], {'custom':True})
+
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
+    def test_invalid_original_toml_is_retained_before_observation(self):
+        missing = self.home/'gone'
+        raw = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\ninvalid="unterminated\n').encode()
+        config = self.write(self.home/'config.toml', raw)
+        with self.assertRaises(ValueError):
+            lifecycle.prune_projects(self.home, False, self.now, self.record, lifecycle.Guard(self.home))
+        self.assertEqual(config.read_bytes(), raw)
+        self.assertFalse((self.home/'maintenance/missing-projects.json').exists())
+
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
+    def test_invalid_pruned_toml_is_retained_before_backup_or_replace(self):
+        missing = self.home/'gone'
+        text = 'model="keep"\n[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\n'
+        config = self.write(self.home/'config.toml', text.encode())
+        start = text.index('"')
+        with patch.object(lifecycle, 'project_sections', return_value=[(str(missing),start,start+1)]):
+            lifecycle.prune_projects(self.home, False, self.now, self.record, lifecycle.Guard(self.home))
+            with self.assertRaises(ValueError):
+                lifecycle.prune_projects(self.home, True, self.now+4*lifecycle.DAY, self.record, lifecycle.Guard(self.home))
+        self.assertEqual(config.read_bytes(), text.encode())
+        self.assertFalse((self.home/'maintenance/config-backups').exists())
+        self.assertFalse(config.with_name('config.toml.storage-new').exists())
+
+    def test_missing_toml_parser_retains_config_without_observation(self):
+        raw = b'model="keep"\n'
+        config = self.write(self.home/'config.toml', raw)
+        with patch.object(lifecycle, 'tomllib', None):
+            try:
+                lifecycle.prune_projects(self.home, True, self.now, self.record, lifecycle.Guard(self.home))
+            except ValueError as error:
+                self.fail('missing parser must retain without dispatching pruning: ' + str(error))
+        self.assertEqual(config.read_bytes(), raw)
+        self.assertFalse((self.home/'maintenance/missing-projects.json').exists())
+        self.assertEqual(self.events[-1]['reason'], 'project-pruning-requires-python-3.11-tomllib')
+
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
     def test_missing_project_requires_three_days_and_preserves_unrelated_toml(self):
         missing = self.home / "gone project"
         existing = self.home / "existing project"
@@ -570,6 +627,7 @@ class StorageLifecycleTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), raw)
 
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
     def test_changed_project_section_restarts_missing_observation(self):
         missing = self.home / "gone"
         initial = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level = "trusted"\n').encode()
@@ -592,6 +650,7 @@ class StorageLifecycleTests(unittest.TestCase):
             link.symlink_to(target, target_is_directory=True)
             self.addCleanup(lambda: link.unlink() if link.is_symlink() else None)
 
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
     def test_config_backup_reparse_keeps_config_and_external_bytes(self):
         missing = self.home / "gone"
         raw = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\n').encode()
@@ -608,6 +667,7 @@ class StorageLifecycleTests(unittest.TestCase):
         self.assertEqual(sentinel.read_bytes(), b"original target bytes")
         self.assertEqual(sorted(p.name for p in outside.iterdir()), ["keep"])
 
+    @unittest.skipIf(tomllib is None, 'project pruning requires stdlib tomllib')
     def test_missing_project_ledger_ancestry_rejected_before_write(self):
         missing = self.home / "gone"
         raw = ('[projects.' + json.dumps(str(missing)) + ']\ntrust_level="trusted"\n').encode()

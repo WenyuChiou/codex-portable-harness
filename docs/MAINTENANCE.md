@@ -204,7 +204,9 @@ Without that protection, retain the original package even when a duplicate exist
 
 Project TOML sections expire only after a missing-path observation lasting more
 than three days. Other TOML bytes are preserved, config is backed up, and concurrent
-changes stop the write. SQLite databases require a separate offline, verified
+changes stop the write. Python 3.11+ standard-library `tomllib` verifies the original
+and proposed config and recognizes table boundaries outside string values. Python
+3.10 retains the config and reports this parser requirement. SQLite databases require a separate offline, verified
 backup procedure. Home-repository Git history and model installations stay outside
 retention. Protected product homes, backup paths and reparse points are rejected
 before traversal.

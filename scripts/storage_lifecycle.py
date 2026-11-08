@@ -11,6 +11,11 @@ import shutil
 import stat
 import time
 
+try:
+    import tomllib
+except ImportError:  # Python 3.10 can preview storage; project pruning stays read-only.
+    tomllib = None
+
 from common import atomic_write_json, sha256
 
 DAY = 86400
@@ -497,16 +502,35 @@ def sweep(home, apply, now, record, guard, config, git):
 PROJECT = re.compile(r'(?m)^\[projects\.("(?:[^"\\\r\n]|\\.)*"|\x27[^\x27\r\n]*\x27)\][ \t]*(?:\r?\n|$)')
 
 
+def validate_toml(text):
+    if tomllib is None:
+        raise ValueError("project-pruning-requires-python-3.11-tomllib")
+    return tomllib.loads(text)
+
+
 def project_sections(text):
+    validate_toml(text)
+    # A complete TOML prefix can end before a real table header, never in an
+    # unfinished multiline string or array. Use the standard parser as the lexer
+    # so examples inside string values cannot become removable table boundaries.
+    headers = []
+    for match in re.finditer(r"(?m)^[ \t]*\[", text):
+        try:
+            validate_toml(text[:match.start()])
+        except ValueError:
+            continue
+        headers.append(match.start())
+    boundaries = set(headers)
     result = []
     for match in PROJECT.finditer(text):
+        if match.start() not in boundaries:
+            continue
         token = match.group(1)
         try:
             path = json.loads(token) if token.startswith('"') else token[1:-1]
         except ValueError:
             continue
-        following = re.search(r"(?m)^\[", text[match.end():])
-        end = match.end()+following.start() if following else len(text)
+        end = next((start for start in headers if start > match.start()), len(text))
         result.append((path, match.start(), end))
     return result
 
@@ -518,15 +542,18 @@ def prune_projects(home, apply, now, record, guard):
     guard.check(path, home)
     if guard.pinned(path):
         record("config", path, "retained", reason="pinned-or-active"); return
+    if tomllib is None:
+        record("config", path, "retained", reason="project-pruning-requires-python-3.11-tomllib"); return
     raw = path.read_bytes()
     text = raw.decode("utf-8")
+    sections = project_sections(text)
     ledger_path = guard.check(home/"maintenance/missing-projects.json", home, allow_missing=True)
     if os.path.lexists(ledger_path):
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     else:
         ledger = {}
     retained, deletions, observations = {}, [], []
-    for target, start, end in project_sections(text):
+    for target, start, end in sections:
         reason = None
         target_path = absolute(target)
         entry_hash = hashlib.sha256(text[start:end].encode()).hexdigest()
@@ -552,6 +579,10 @@ def prune_projects(home, apply, now, record, guard):
     atomic_write_json(ledger_path, retained)
     if not deletions:
         return
+    changed = text
+    for start, end in reversed(deletions):
+        changed = changed[:start]+changed[end:]
+    validate_toml(changed)
     fingerprint = hashlib.sha256(raw).hexdigest()
     record("config", path, "prune-projects", fingerprint=fingerprint, entries=observations, bytes=0)
     if apply:
@@ -563,9 +594,6 @@ def prune_projects(home, apply, now, record, guard):
             raise ValueError("config-backup-conflict")
         if not backup.exists():
             backup.write_bytes(raw)
-        changed = text
-        for start, end in reversed(deletions):
-            changed = changed[:start]+changed[end:]
         temporary = path.with_name(path.name+".storage-new")
         if os.path.lexists(temporary):
             raise ValueError("config-temporary-collision")

@@ -83,6 +83,10 @@ CASES = [
     ("task-handoff-rule", "install_maintenance.py", "- At task end update the project's handoff: progress, output paths, needed\n  worktrees and next step. Use its existing file, or CODEX_HOME/maintenance/handovers/<project>.md.\n", '', E+"test_deployed_rules_require_root_guard_and_project_handoff"),
     ("clone-index-flags", "storage_lifecycle.py", 'if index_flags_hide_changes(path, git):', 'if False:', L+"test_clone_index_flags_retain_hidden_tracked_edits"),
     ("worktree-index-flags", "maintenance.py", 'if index_flags_hide_changes(path, git):', 'if False:', "test_maintenance.MaintenanceTests.test_worktree_index_flags_retain_hidden_tracked_edits"),
+    ("toml-string-boundaries", "storage_lifecycle.py", 'if match.start() not in boundaries:', 'if False:', L+"test_multiline_toml_headers_are_values_not_project_boundaries"),
+    ("toml-original-validation", "storage_lifecycle.py", '    validate_toml(text)\n', '', L+"test_invalid_original_toml_is_retained_before_observation"),
+    ("toml-result-validation", "storage_lifecycle.py", '    validate_toml(changed)\n', '', L+"test_invalid_pruned_toml_is_retained_before_backup_or_replace"),
+    ("toml-parser-unavailable", "storage_lifecycle.py", 'if tomllib is None:\n        record("config", path, "retained", reason="project-pruning-requires-python-3.11-tomllib"); return', 'if False:\n        record("config", path, "retained", reason="project-pruning-requires-python-3.11-tomllib"); return', L+"test_missing_toml_parser_retains_config_without_observation"),
 ]
 
 
