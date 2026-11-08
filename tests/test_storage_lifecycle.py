@@ -1,5 +1,8 @@
 """Storage lifecycle behavior against disposable files and local Git repositories."""
 import json
+import contextlib
+from datetime import datetime, timezone
+import io
 import os
 from pathlib import Path
 import shutil
@@ -115,6 +118,61 @@ class StorageLifecycleTests(unittest.TestCase):
         self.age(candidate)
         self.sweep(config)
         self.assert_kept(candidate)
+
+    def test_shallow_backup_does_not_authorize_clone_removal(self):
+        _, candidate, config = self.clone("shallow-source")
+        parent = maintenance.git(candidate, "rev-parse", "HEAD").strip()
+        self.write(candidate / "tracked", b"second committed outcome")
+        maintenance.git(candidate, "commit", "-am", "second outcome")
+        shallow = self.home / "shallow-backup"
+        maintenance.git(self.home, "clone", "--no-local", "--depth", "1", str(candidate), str(shallow))
+        self.assertEqual(maintenance.git(shallow, "rev-parse", "--is-shallow-repository").strip(), b"true")
+        missing = subprocess.run(['git', '-C', str(shallow), 'cat-file', '-e', parent.decode()], capture_output=True, timeout=15)
+        self.assertNotEqual(missing.returncode, 0)
+        config['storage']['clone_backups'][str(candidate)] = str(shallow)
+        self.age(candidate)
+        self.sweep(config)
+        self.assert_kept(candidate)
+
+    def test_partial_or_promisor_backup_does_not_authorize_clone_removal(self):
+        for mode in ('config', 'pack'):
+            with self.subTest(mode=mode):
+                backup, candidate, config = self.clone("partial-" + mode)
+                if mode == 'config':
+                    maintenance.git(backup, "config", "remote.fixture.promisor", "true")
+                else:
+                    self.write(backup / '.git/objects/pack/fixture.promisor', b'')
+                self.age(candidate)
+                self.sweep(config)
+                self.assert_kept(candidate)
+
+    def test_backup_missing_tree_object_does_not_authorize_clone_removal(self):
+        backup, candidate, config = self.clone("missing-tree")
+        tree = maintenance.git(backup, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        path = backup / '.git/objects' / tree[:2] / tree[2:]
+        os.chmod(path, stat.S_IWUSR | stat.S_IRUSR)
+        path.unlink()
+        self.age(candidate)
+        self.sweep(config)
+        self.assert_kept(candidate)
+
+    def test_recent_session_checkout_is_pinned_during_storage_apply(self):
+        _, candidate, config = self.clone("active-session")
+        self.age(candidate)
+        config['storage']['pinned'] = [str(self.home / 'maintenance/reports')]
+        self.write(self.home / 'maintenance/local.json', json.dumps(config).encode())
+        timestamp = datetime.fromtimestamp(self.now, timezone.utc).isoformat()
+        self.write(self.home / 'sessions/rollout-active.jsonl',
+                   (json.dumps({'timestamp': timestamp, 'payload': {'cwd': str(candidate)}}) + '\n').encode())
+        plan = self.home / 'maintenance/session-preview.json'
+        arguments = ['maintenance.py', '--only', 'storage', '--plan', str(plan)]
+        output = io.StringIO()
+        with patch.object(maintenance, 'active_codex_home', return_value=self.home), patch.object(maintenance.time, 'time', return_value=self.now), patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(output):
+            self.assertEqual(maintenance.main(), 0, output.getvalue())
+            self.assertFalse(any(row['path'] == str(candidate) for row in json.loads(plan.read_text())['mutations']))
+            arguments[:] = ['maintenance.py', '--only', 'storage', '--apply', '--approved-plan', str(plan), '--plan-sha256', maintenance.sha256(plan)]
+            self.assertEqual(maintenance.main(), 0, output.getvalue())
+        self.assertTrue(candidate.exists())
 
     def test_expired_outputs_removed_only_after_apply(self):
         paths = [self.write(self.home / relative / "result.bin") for relative in (

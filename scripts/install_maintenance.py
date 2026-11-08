@@ -19,6 +19,8 @@ FILES = ("common.py", "maintenance.py", "storage_lifecycle.py", "workload.py", "
 
 TASK_RULE = """<!-- codex-storage-lifecycle:start -->
 ## Task storage and load
+- Start repository work with git rev-parse --show-toplevel. If it equals the
+  account home, stop and report; use a project checkout before continuing.
 - Put new scratch in CODEX_HOME/tmp/<task-id> and new clones/worktrees in
   CODEX_HOME/worktrees. Run autonomous commands through maintenance/runtime/task_run.py
   with an explicit timeout; use test_run.py for tests (one heavy suite at a time).
@@ -28,6 +30,8 @@ TASK_RULE = """<!-- codex-storage-lifecycle:start -->
 - Keep at most three executing autonomous jobs. Idle chats hold no job slot.
   Use bounded GitHub checks on a meaningful change; avoid rapid API polling.
 - Maintenance previews first. Apply only a reviewed plan after user approval.
+- At task end update the project's handoff: progress, output paths, needed
+  worktrees and next step. Use its existing file, or CODEX_HOME/maintenance/handovers/<project>.md.
 <!-- codex-storage-lifecycle:end -->
 """
 

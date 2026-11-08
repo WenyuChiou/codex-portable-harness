@@ -70,6 +70,17 @@ CASES = [
     ("preservation-pin-loaded-before-sweep", "storage_lifecycle.py", '    guard.pins.update(permanent_pins)\n', '', L+"test_configured_restoration_pin_survives_later_sweeps"),
     ("preservation-whole-copy-pin", "storage_lifecycle.py", 'absolute(target).is_relative_to(pin)', 'overlaps(absolute(target), pin)', L+"test_partial_restoration_pin_does_not_protect_a_sibling_payload"),
     ("clone-linked-worktree-owner", "storage_lifecycle.py", 'if os.path.lexists(registry):', 'if False:', L+"test_clone_owning_linked_worktree_preserves_detached_commit"),
+    ("clone-shallow-backup", "storage_lifecycle.py", 'if git(backup, "rev-parse", "--is-shallow-repository").strip() != b"false":', 'if False:', L+"test_shallow_backup_does_not_authorize_clone_removal"),
+    ("clone-partial-backup", "storage_lifecycle.py", 'if partial or any(packs.glob("*.promisor")):', 'if False:', L+"test_partial_or_promisor_backup_does_not_authorize_clone_removal"),
+    ("clone-backup-object-closure", "storage_lifecycle.py", '    git(backup, "fsck", "--full", "--no-reflogs", "--no-dangling")\n', '', L+"test_backup_missing_tree_object_does_not_authorize_clone_removal"),
+    ("storage-recent-session-pins", "maintenance.py", '                guard.pins.update(path for path in recent_cwds(home, now) if not home.is_relative_to(path))\n', '', L+"test_recent_session_checkout_is_pinned_during_storage_apply"),
+    ("storage-session-home-container", "maintenance.py", 'if not home.is_relative_to(path)', 'if True', E+"test_recent_session_home_is_a_container_not_a_recursive_pin"),
+    ("session-cwd-lexical-only", "maintenance.py", 'result.add(absolute(cwd))', 'result.add(Path(cwd).resolve())', E+"test_session_cwd_is_recorded_without_resolving_protected_path"),
+    ("home-repo-guard", "task_run.py", 'if root == Path(os.path.abspath(account_home)):', 'if False:', E+"test_task_root_guard_rejects_home_repository_and_accepts_nested_project"),
+    ("task-home-command-stop", "task_run.py", 'root = require_project_repository()', 'root = Path.cwd()', E+"test_task_root_guard_stops_before_command_or_scratch"),
+    ("task-root-utf8", "task_run.py", 'encoding="utf-8"', 'encoding="ascii", errors="replace"', E+"test_task_root_guard_handles_unicode_home"),
+    ("home-root-git-env", "task_run.py", "git_env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}", 'git_env = dict(os.environ)', E+"test_task_root_guard_ignores_inherited_git_routing"),
+    ("task-handoff-rule", "install_maintenance.py", "- At task end update the project's handoff: progress, output paths, needed\n  worktrees and next step. Use its existing file, or CODEX_HOME/maintenance/handovers/<project>.md.\n", '', E+"test_deployed_rules_require_root_guard_and_project_handoff"),
 ]
 
 

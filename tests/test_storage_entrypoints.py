@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
 import maintenance as m
 import install_maintenance as installer
 import workload
+import task_run as tasks
 
 
 class StorageEntrypoints(unittest.TestCase):
@@ -136,6 +137,69 @@ class StorageEntrypoints(unittest.TestCase):
             plan = self.plan()
         self.assertFalse(any(row["path"] == str(checkout) for row in json.loads(plan.read_text())["mutations"]))
         self.assertEqual((checkout / "uncommitted").read_text(), "active task bytes")
+
+    def test_task_root_guard_rejects_home_repository_and_accepts_nested_project(self):
+        subprocess.run(['git', '-C', str(self.home), 'init'], check=True, capture_output=True, timeout=15)
+        nested = self.home / 'nested'
+        nested.mkdir()
+        with self.assertRaisesRegex(RuntimeError, 'HOME_REPOSITORY_BLOCKED'):
+            tasks.require_project_repository(nested, self.home)
+        subprocess.run(['git', '-C', str(nested), 'init'], check=True, capture_output=True, timeout=15)
+        self.assertEqual(tasks.require_project_repository(nested, self.home), nested)
+
+    def test_task_root_guard_stops_before_command_or_scratch(self):
+        with patch.object(tasks, 'require_project_repository', side_effect=RuntimeError('HOME_REPOSITORY_BLOCKED')), patch.object(tasks, 'command_main', return_value=0) as child:
+            self.assertEqual(tasks.main(), 78)
+            child.assert_not_called()
+
+    def test_task_root_guard_handles_unicode_home(self):
+        account = self.home / '\u5bb6\u76ee\u9304'
+        account.mkdir()
+        subprocess.run(['git', '-C', str(account), 'init'], check=True, capture_output=True, timeout=15)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'HOME_REPOSITORY_BLOCKED'):
+                tasks.require_project_repository(account, account)
+        except UnicodeError as error:
+            self.fail('Git root decoding failed: ' + str(error))
+
+    def test_task_root_guard_ignores_inherited_git_routing(self):
+        subprocess.run(['git', '-C', str(self.home), 'init'], check=True, capture_output=True, timeout=15)
+        independent = self.home.parent / 'independent-project'
+        independent.mkdir()
+        subprocess.run(['git', '-C', str(independent), 'init'], check=True, capture_output=True, timeout=15)
+        overrides = {'GIT_DIR': str(independent / '.git'), 'GIT_WORK_TREE': str(independent)}
+        with patch.dict(os.environ, overrides), patch.object(Path, 'cwd', return_value=self.home), patch.object(Path, 'home', return_value=self.home), patch.object(tasks, 'command_main', return_value=0) as child:
+            self.assertEqual(tasks.main(), 78)
+            child.assert_not_called()
+            self.assertFalse((self.home / 'tmp/test-runs').exists())
+
+    def test_deployed_rules_require_root_guard_and_project_handoff(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.deploy(self.home, True, sys.executable)
+        agents = (self.home / 'AGENTS.md').read_text()
+        self.assertIn('git rev-parse --show-toplevel', agents)
+        self.assertIn('progress, output paths, needed', agents)
+        self.assertIn('worktrees and next step', agents)
+
+    def test_recent_session_home_is_a_container_not_a_recursive_pin(self):
+        path = self.fixture()
+        with patch.object(m, 'recent_cwds', return_value={self.home}):
+            plan = self.plan()
+        self.assertTrue(any(row['path'] == str(path) for row in json.loads(plan.read_text())['mutations']))
+
+    def test_session_cwd_is_recorded_without_resolving_protected_path(self):
+        protected = self.home / '.claude/private'
+        area = self.home / 'sessions'
+        area.mkdir()
+        timestamp = datetime.fromtimestamp(self.now, timezone.utc).isoformat()
+        (area / 'rollout-active.jsonl').write_text(json.dumps({'timestamp': timestamp, 'payload': {'cwd': str(protected)}}) + '\n')
+        original = Path.resolve
+        def checked(path, *args, **kwargs):
+            if path == protected:
+                self.fail('session CWD resolution touched protected path')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'resolve', checked):
+            self.assertIn(protected, m.recent_cwds(self.home, self.now))
 
     def test_recent_long_rollout_tail_stays_plain(self):
         area = self.home / "sessions"

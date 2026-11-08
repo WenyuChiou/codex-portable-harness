@@ -17,7 +17,7 @@ import time
 import uuid
 
 from common import active_codex_home, atomic_write_json, sha256
-from storage_lifecycle import Guard, snapshot, REBUILDABLE, preserve_capacity
+from storage_lifecycle import Guard, snapshot, REBUILDABLE, preserve_capacity, absolute
 
 DAY = 86400
 OWNER = "codex-portable-harness-maintenance-v1"
@@ -99,7 +99,7 @@ def recent_cwds(home: Path, now: float) -> set[Path]:
                 value = json.loads(raw)
                 cwd = value.get("payload", {}).get("cwd")
                 if cwd:
-                    result.add(Path(cwd).resolve())
+                    result.add(absolute(cwd))
     return result
 
 
@@ -459,9 +459,13 @@ def main() -> int:
                 if action == "blocked":
                     failures.append(value)
             import storage_lifecycle
+            def storage_action():
+                guard.pins.update(path for path in recent_cwds(home, now) if not home.is_relative_to(path))
+                storage_lifecycle.sweep(home, args.apply, now, record, guard, value, git)
+                storage_lifecycle.prune_projects(home, args.apply, now, record, guard)
             for name, action in [("worktrees", lambda: clean_worktrees(home, args.apply, now, record, pinned)),
                                  ("retention", lambda: retain_sessions(home, args.apply, now, record, pinned)),
-                                 ("storage", lambda: (storage_lifecycle.sweep(home, args.apply, now, record, guard, value, git), storage_lifecycle.prune_projects(home, args.apply, now, record, guard)))]:
+                                 ("storage", storage_action)]:
                 if args.only in (name, "all"):
                     try:
                         action()

@@ -154,6 +154,12 @@ Existing sessions must adopt this entry point; installing it cannot redirect an
 already-running test. Unrecognized old repo files remain outside its ownership.
 
 Use `task_run.py --timeout SECONDS -- COMMAND ...` for other autonomous commands.
+It first runs `git rev-parse --show-toplevel` with a ten-second timeout. An account
+home repository or an undetermined repository stops the command before scratch
+or child execution. `task_run.py --check-repo` performs only this check.
+At completion update the existing project handoff, or the project-named file in
+`CODEX_HOME/maintenance/handovers`: progress, output paths, still-needed worktrees,
+and the next step. New worktrees always use `CODEX_HOME/worktrees`.
 Three shared kernel leases limit executing managed jobs. Test runs and maintenance
 share one heavy I/O lease; waiting heavy jobs do not consume general slots. Locks
 release on exit/crash. Desktop chat count and commands outside these entrypoints
@@ -184,6 +190,10 @@ submodules and necessary ignored data retain the clone for inspection.
 Repositories with a `.git/worktrees` registry are retained, including stale or
 empty registries. Their shared objects and detached worktree commits may still
 be required elsewhere; cleanup never prunes that registry to make a clone eligible.
+Shallow or partial/promisor repositories do not qualify as complete backups.
+An eligible backup must pass bounded, read-only `git fsck --full`; failure or
+timeout retains the source. Recent rollout working directories also pin storage
+candidates. Home/ancestor containers stay excluded and CWD text is handled lexically.
 
 An expired preservation package is removable only when a byte-verified duplicate
 is covered in full by an explicit `storage.pinned` or `pinned_worktrees` setting

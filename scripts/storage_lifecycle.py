@@ -277,6 +277,20 @@ def clone_retained_elsewhere(path, backup, guard, git):
     snapshot(backup/".git", backup, guard)
     if os.path.lexists(backup/".git/objects/info/alternates") or os.path.lexists(backup/".git/commondir"):
         return "external-commit-backup-required"
+    if git(backup, "rev-parse", "--is-shallow-repository").strip() != b"false":
+        return "incomplete-shallow-backup"
+    settings = git(backup, "config", "--local", "--list").splitlines()
+    partial = False
+    for setting in settings:
+        key, separator, value = setting.lower().partition(b"=")
+        if key == b"extensions.partialclone" or (key.endswith(b".promisor") and (not separator or value not in {b"false", b"no", b"off", b"0"})):
+            partial = True
+    packs = guard.check(backup/".git/objects/pack", backup, allow_missing=True)
+    if partial or any(packs.glob("*.promisor")):
+        return "incomplete-partial-backup"
+    # --contains only verifies ancestry among available commits. Check complete
+    # local object connectivity/integrity; a failure or timeout retains the clone.
+    git(backup, "fsck", "--full", "--no-reflogs", "--no-dangling")
     refs = git(path, "for-each-ref", "--format=%(objectname)", "refs/heads", "refs/tags", "refs/stash").decode().split()
     refs.append(git(path, "rev-parse", "HEAD").decode().strip())
     for commit in set(refs):
