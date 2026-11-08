@@ -197,8 +197,10 @@ def repository_units(root, guard, depth=0):
     if not os.path.lexists(root):
         return
     info = os.lstat(native(root))
-    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400 or not stat.S_ISDIR(info.st_mode):
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
         yield root; return
+    if not stat.S_ISDIR(info.st_mode):
+        return  # Clone discovery considers repositories, not individual task logs.
     if os.path.lexists(root/".git") or depth >= 4:
         yield root; return
     entries = list(units(root, guard=guard))

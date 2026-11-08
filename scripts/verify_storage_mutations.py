@@ -57,6 +57,10 @@ CASES = [
     ("skip-recent-payload-walk", "storage_lifecycle.py", '                if root_age <= 3 * DAY:\n                    record(kind, path, "retained", reason="recent-within-three-days")\n                    continue\n                if root_age <= days * DAY:\n                    record(kind, path, "retained", reason="within-retention")\n                    continue\n', '', L+"test_known_retained_candidates_skip_payload_scans"),
     ("skip-unbacked-clone-walk", "storage_lifecycle.py", 'if str(path) not in backups:', 'if False:', L+"test_unbacked_clone_skips_payload_and_git_probes"),
     ("reuse-journal-snapshot", "maintenance.py", 'if action != "delete-expired" or "fingerprint" not in details:', 'if True:', E+"test_storage_journal_reuses_the_checked_candidate_snapshot"),
+    ("repository-candidate-granularity", "storage_lifecycle.py", 'if not stat.S_ISDIR(info.st_mode):\n        return  # Clone discovery considers repositories, not individual task logs.', 'if not stat.S_ISDIR(info.st_mode):\n        yield root; return', L+"test_clone_discovery_skips_individual_task_logs"),
+    ("clone-fourteen-day-retention", "storage_lifecycle.py", 'elif now - info.latest <= days * DAY:', 'elif True:', L+"test_clone_retention_boundary_is_fourteen_days"),
+    ("preview-journal-sync-batching", "maintenance.py", 'if args.apply:\n                    stream.flush()\n                    os.fsync(stream.fileno())', 'if True:\n                    stream.flush()\n                    os.fsync(stream.fileno())', E+"test_preview_syncs_complete_journal_before_plan_without_per_item_flushes"),
+    ("preview-journal-final-sync", "maintenance.py", '            stream.flush()\n            os.fsync(stream.fileno())\n        if not args.apply:', '        if not args.apply:', E+"test_preview_syncs_complete_journal_before_plan_without_per_item_flushes"),
 ]
 
 

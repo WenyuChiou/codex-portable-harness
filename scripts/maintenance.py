@@ -435,8 +435,9 @@ def main() -> int:
                     mutations.append(item)
                 value = {"kind": kind, "path": str(path), "action": action, "apply": args.apply, **details}
                 stream.write(json.dumps(value, ensure_ascii=False) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
+                if args.apply:
+                    stream.flush()
+                    os.fsync(stream.fileno())
                 print(json.dumps(value, ensure_ascii=False), flush=True)
                 if action == "blocked":
                     failures.append(value)
@@ -449,6 +450,10 @@ def main() -> int:
                         action()
                     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
                         record(name, home, "blocked", error=str(exc))
+            # Preview changes no payload. Flush its complete journal once before
+            # publishing a plan; apply intents/outcomes remain synchronous above.
+            stream.flush()
+            os.fsync(stream.fileno())
         if not args.apply:
             if plan.exists():
                 raise ValueError("plan output already exists")

@@ -57,6 +57,17 @@ class StorageEntrypoints(unittest.TestCase):
         with patch.object(m,'snapshot',side_effect=AssertionError('duplicate journal snapshot')):
             self.plan()
 
+    def test_preview_syncs_complete_journal_before_plan_without_per_item_flushes(self):
+        for number in range(30):
+            path=self.home/'visualizations'/str(number)/'outcome'
+            path.parent.mkdir(parents=True);path.write_text('fixture')
+        original=os.fsync
+        with patch.object(os,'fsync',wraps=original) as sync:
+            plan=self.plan()
+        self.assertLessEqual(sync.call_count,2)
+        self.assertGreaterEqual(sync.call_count,1)
+        self.assertEqual(len(json.loads(plan.read_text())['mutations']),30)
+
     def test_apply_requires_reviewed_plan_and_matching_hash(self):
         self.fixture()
         with self.assertRaises(SystemExit):

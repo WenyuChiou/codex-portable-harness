@@ -294,6 +294,21 @@ class StorageLifecycleTests(unittest.TestCase):
             self.sweep(config)
         self.assertEqual(self.assert_kept(candidate)['reason'],'external-commit-backup-required')
 
+    def test_clone_discovery_skips_individual_task_logs(self):
+        _,candidate,_=self.clone()
+        root=candidate.parent
+        for number in range(30):self.write(root/'task-logs'/f'{number}.log')
+        found=list(lifecycle.repository_units(root,lifecycle.Guard(self.home)))
+        self.assertIn(candidate,found)
+        self.assertEqual(found,[candidate])
+
+    def test_clone_retention_boundary_is_fourteen_days(self):
+        _,candidate,config=self.clone()
+        self.age(candidate,14);self.sweep(config)
+        self.assert_kept(candidate)
+        self.age(candidate,15);self.sweep(config)
+        self.assertFalse(candidate.exists(),self.events)
+
     def test_unpublished_clone_retained_when_backup_lacks_commit(self):
         source, candidate, config = self.clone()
         maintenance.git(candidate, "commit", "--allow-empty", "-m", "unpublished fixture work")
