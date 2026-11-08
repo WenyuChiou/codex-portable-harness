@@ -66,6 +66,23 @@ class MaintenanceTests(unittest.TestCase):
         m.clean_worktrees(self.home, True, self.now, self.record, {wt.resolve()})
         self.assertEqual(self.events[-1]['action'], 'active-or-pinned')
 
+    def test_worktree_index_flags_retain_hidden_tracked_edits(self):
+        source, wt = self.repo()
+        for flag in ('skip-worktree', 'assume-unchanged'):
+            with self.subTest(flag=flag):
+                (wt/'tracked').write_text('accepted')
+                m.git(wt, 'update-index', '--' + flag, '--', 'tracked')
+                payload = 'irreplaceable hidden edits ' + flag
+                (wt/'tracked').write_text(payload)
+                self.assertEqual(m.git(wt, 'status', '--porcelain=v1'), b'')
+                self.age(wt); self.age(source/'.git/worktrees')
+                for apply in (False, True):
+                    m.clean_worktrees(self.home, apply, self.now, self.record, set())
+                    self.assertTrue(wt.exists(), self.events)
+                    self.assertEqual(self.events[-1]['action'], 'dirty-report-only')
+                    self.assertEqual((wt/'tracked').read_text(), payload)
+                m.git(wt, 'update-index', '--no-' + flag, '--', 'tracked')
+
     def test_orphan_head_is_retained_before_remove_and_ignored_bytes_survive(self):
         source, wt = self.repo()
         (wt/'tracked').write_text('orphan commit')
@@ -192,7 +209,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(newest2.exists())
         self.assertAlmostEqual(target.stat().st_mtime, self.now-40*m.DAY, places=3)
         m.retain_sessions(self.home, True, self.now+51*m.DAY, self.record)
-        self.assertFalse(target.exists())
+        self.assertTrue(target.exists())  # Session archives have no expiry.
 
     def test_archive_collision_keeps_source(self):
         raw = self.rollout('sessions','source',40)
@@ -204,7 +221,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(raw.exists())
         self.assertEqual(target.read_bytes(),b'original')
 
-    def test_existing_native_compressed_archives_expire_and_newest_is_preserved(self):
+    def test_existing_native_compressed_archives_have_no_expiry(self):
         area=self.home/'archived_sessions'
         area.mkdir()
         for name,days in [('old',100),('latest',95),('recent',45)]:
@@ -212,8 +229,8 @@ class MaintenanceTests(unittest.TestCase):
             p.write_bytes(b'preexisting native archive')
             os.utime(p,(self.now-days*m.DAY,)*2)
         m.retain_sessions(self.home,True,self.now,self.record)
-        self.assertFalse((area/'rollout-old.jsonl.zst').exists())
-        self.assertFalse((area/'rollout-latest.jsonl.zst').exists())
+        self.assertTrue((area/'rollout-old.jsonl.zst').exists())
+        self.assertTrue((area/'rollout-latest.jsonl.zst').exists())
         self.assertTrue((area/'rollout-recent.jsonl.zst').exists())
 
     def test_recent_event_protects_rollout_with_stale_windows_mtime(self):
@@ -264,12 +281,13 @@ class MaintenanceTests(unittest.TestCase):
             m.clean_tmp(self.home,True,self.now,self.record)
         self.assertEqual(sentinel.read_text(),'keep')
 
+    @unittest.skipIf(sys.version_info < (3,11), 'MCP config edits require stdlib tomllib')
     def test_mcp_patch_preserves_other_settings_and_is_idempotent(self):
         original = '[mcp_servers.codebase-memory-mcp]\ncommand = "backend.exe"\n\n[other]\nvalue = 7\n'
         changed, backend = installer.patch_mcp(original,self.home,sys.executable)
-        self.assertEqual(backend,'backend.exe')
+        self.assertEqual(backend,'removed-disabled-server')
         self.assertIn('[other]\nvalue = 7\n',changed)
-        self.assertIn('tool_timeout_sec = 960',changed)
+        self.assertNotIn('codebase-memory-mcp',changed)
         self.assertEqual(installer.patch_mcp(changed,self.home,sys.executable)[0],changed)
 
     def test_installer_preserves_hooks_and_rejects_user_runtime_edit(self):

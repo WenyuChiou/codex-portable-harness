@@ -1,6 +1,20 @@
 # Repository Contract
 
+- Before repository work run `git rev-parse --show-toplevel`. If it is the account
+  home, stop there and report; continue only in a verified project checkout.
 - This repository may write only inside the active `CODEX_HOME` directory.
+- Storage maintenance may remove explicitly configured legacy Codex task paths
+  after a preview, user approval and an unchanged reviewed plan. Keep shared or
+  unowned data, protected product homes, backup roots and Ollama models. The home
+  repository's Git history is proposal-only until independently backed up.
+- New scratch belongs under `CODEX_HOME/tmp`; new clones and linked worktrees
+  belong under `CODEX_HOME/worktrees`. On task completion or abandonment, clear
+  owned disposable scratch and report retained paths with their reasons.
+- Run autonomous work through `task_run.py` (three executing jobs maximum) and
+  tests through `test_run.py` (one heavy suite). Preserve native host controls.
+- Before task completion update the project's existing handoff, or its
+  `CODEX_HOME/maintenance/handovers/<project>.md`: progress, output locations,
+  still-needed worktrees, and the next step. Keep host-local details out of commits.
 - Codex worktree maintenance may update preservation refs and the registered
   worktree metadata in a candidate's owning Git repository. This exception is
   limited to clean, idle linked worktrees below `CODEX_HOME/worktrees`.

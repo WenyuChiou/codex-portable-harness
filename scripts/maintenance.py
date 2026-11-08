@@ -17,6 +17,7 @@ import time
 import uuid
 
 from common import active_codex_home, atomic_write_json, sha256
+from storage_lifecycle import Guard, snapshot, REBUILDABLE, preserve_capacity, absolute, index_flags_hide_changes
 
 DAY = 86400
 OWNER = "codex-portable-harness-maintenance-v1"
@@ -24,20 +25,7 @@ OWNER = "codex-portable-harness-maintenance-v1"
 
 def safe(path: Path, root: Path) -> Path:
     """Reject junctions, symlinks, lexical escapes and the root itself."""
-    path = Path(os.path.abspath(path))
-    root = Path(os.path.abspath(root))
-    if path == root or not path.is_relative_to(root):
-        raise ValueError(f"outside maintenance scope: {path}")
-    for p in (path, *path.parents):
-        if p.exists() or p.is_symlink():
-            info = p.lstat()
-            if p.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
-                raise ValueError(f"reparse point: {p}")
-        if p == root:
-            break
-    if not path.resolve().is_relative_to(root.resolve()):
-        raise ValueError(f"resolved path escapes scope: {path}")
-    return path
+    return Guard(root).check(path, root, allow_missing=True)
 
 
 def tree(path: Path, root: Path) -> list[Path]:
@@ -95,7 +83,7 @@ def git(path: Path, *args: str) -> bytes:
     # inspected repository, not from inherited GIT_* overrides.
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     env["GIT_TERMINAL_PROMPT"] = "0"
-    return run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(path), *args], env=env)
+    return run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", str(path), *args], env=env)
 
 
 def recent_cwds(home: Path, now: float) -> set[Path]:
@@ -111,7 +99,7 @@ def recent_cwds(home: Path, now: float) -> set[Path]:
                 value = json.loads(raw)
                 cwd = value.get("payload", {}).get("cwd")
                 if cwd:
-                    result.add(Path(cwd).resolve())
+                    result.add(absolute(cwd))
     return result
 
 
@@ -132,12 +120,14 @@ def worktree_candidates(root: Path):
 
 
 def clean_status(path: Path) -> bytes:
+    if index_flags_hide_changes(path, git):
+        return b"index-flags-manual-review"
     return git(path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 
 
 def allowed_metadata(path: Path) -> Path:
     def check(candidate):
-        if any(part.lower() in {".claude", ".gemini", ".opencode"} for part in candidate.parts):
+        if Guard(path.parent).forbidden(candidate):
             raise ValueError("owning Git metadata belongs to another agent product; candidate retained")
     check(path)  # Lexical rejection must happen before filesystem resolution.
     resolved = path.resolve()
@@ -195,6 +185,12 @@ def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Pat
             refs = git(path, "for-each-ref", "--contains", head, "--format=%(refname)", "refs/heads", "refs/tags")
             ref = "refs/heads/maintenance-retained/" + head
             ignored = [os.fsdecode(x) for x in git(path, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").split(b"\0") if x]
+            skipped = [name for name in ignored if {part.casefold() for part in Path(name).parts} & REBUILDABLE]
+            ignored = [name for name in ignored if name not in skipped]
+            needed = sum(safe(path/name, path).stat().st_size for name in ignored)
+            if needed:
+                metadata_allowance = 16384 + sum(len(json.dumps(name).encode()) + 512 for name in ignored + skipped)
+                preserve_capacity(home, needed + metadata_allowance)
             record("worktree", path, "eligible", head=head, bytes=size, ignored_files=len(ignored), preserve_ref=None if refs else ref)
             if not apply:
                 continue
@@ -224,7 +220,8 @@ def clean_worktrees(home: Path, apply: bool, now: float, record, pinned: set[Pat
                     raise ValueError(f"ignored content changed: {name}")
                 saved.append({"path": name, "sha256": digest})
             if saved:
-                atomic_write_json(backup / "preservation.json", {"source": str(path), "head": head, "data_directory": "files", "files": saved})
+                (backup/"changes.patch").write_bytes(git(path, "diff", "--binary", "HEAD"))
+                atomic_write_json(backup / "preservation.json", {"owner": OWNER, "created": now, "source": str(path), "head": head, "data_directory": "files", "files": saved, "untracked": [], "rebuildable_skipped": skipped})
             if signature(path, root)[0] != before or clean_status(path):
                 raise ValueError("candidate changed before removal; preserved copies retained")
             # Git performs its own final clean/untracked check. An intervening
@@ -245,28 +242,42 @@ def stable_stat(path: Path):
     return s.st_size, s.st_mtime_ns, s.st_ino
 
 
+ROLLOUT_TAIL_LIMIT = 8 * 1024 * 1024
+
+
 def rollout_activity(path: Path) -> float:
     # Windows may delay LastWriteTime until an app closes its append handle.
     # Recent event timestamps therefore also protect a reopened older rollout.
     latest = path.stat().st_mtime
     with path.open("rb") as f:
-        size = path.stat().st_size
-        offset = max(0, size - 1024 * 1024)
-        f.seek(offset)
-        lines = f.read().splitlines()
-    if offset and lines:
-        lines = lines[1:]  # First line can be truncated by the tail boundary.
-    for line in reversed(lines):
-        try:
-            value = json.loads(line)
-            timestamp = value.get("timestamp")
-            if timestamp:
-                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                if parsed.tzinfo is not None:
-                    return max(latest, parsed.timestamp())
-        except (ValueError, TypeError, AttributeError):
-            continue
-    return latest
+        size = f.seek(0, os.SEEK_END)
+        limit = min(size, ROLLOUT_TAIL_LIMIT)
+        window = min(limit, 64 * 1024)
+        while True:
+            offset = size - window
+            f.seek(offset)
+            tail = f.read(window)
+            # A large final event can occupy the entire initial window. Grow
+            # backward until its start is present, rather than discarding it.
+            if offset:
+                boundary = tail.find(b"\n")
+                tail = tail[boundary + 1:] if boundary >= 0 else b""
+            for line in reversed(tail.splitlines()):
+                try:
+                    value = json.loads(line)
+                    timestamp = value.get("timestamp")
+                    if timestamp:
+                        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        if parsed.tzinfo is not None:
+                            return max(latest, parsed.timestamp())
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            if not offset:
+                return latest
+            if window >= limit:
+                # Unknown activity at the bounded read limit is retained.
+                return max(latest, time.time())
+            window = min(limit, window * 2)
 
 
 def archive_one(source: Path, target: Path, root: Path):
@@ -305,8 +316,9 @@ def archive_one(source: Path, target: Path, root: Path):
             temporary.unlink()
 
 
-def retain_sessions(home: Path, apply: bool, now: float, record):
+def retain_sessions(home: Path, apply: bool, now: float, record, pinned=()):
     cold = home / "maintenance" / "session-archives"
+    guard = Guard(home, pinned)
     for area in ("sessions", "archived_sessions"):
         base = home / area
         if not base.exists():
@@ -319,48 +331,24 @@ def retain_sessions(home: Path, apply: bool, now: float, record):
         for p in files:
             try:
                 age = now - activity[p]
-                if p == newest or age <= 30 * DAY:
+                if p == newest or age <= 14 * DAY or guard.pinned(p):
+                    record("session", p, "retained", reason="newest-rate-limits-or-recent-or-pinned", bytes=p.stat().st_size)
                     continue
                 safe(p, home)
-                action = "delete-expired" if age > 90 * DAY else "compress"
-                record("session", p, action, bytes=p.stat().st_size)
+                record("session", p, "compress", bytes=p.stat().st_size)
                 if apply:
-                    if age > 90 * DAY:
-                        before = stable_stat(p)
-                        if now - rollout_activity(p) > 90 * DAY and stable_stat(p) == before:
-                            p.unlink()
-                    else:
-                        archive_one(p, cold / area / p.relative_to(base).with_suffix(".jsonl.gz"), home)
+                    archive_one(p, cold / area / p.relative_to(base).with_suffix(".jsonl.gz"), home)
             except (OSError, ValueError) as exc:
                 record("session", p, "blocked", error=str(exc))
         # Existing native/compressed archives already satisfy compression. Apply
         # expiry using preserved filesystem activity, without a new dependency.
         packed = [p for p in inventory if p.name.endswith((".jsonl.zst", ".jsonl.gz"))]
-        newest_packed = max(packed, key=lambda p: p.stat().st_mtime) if packed else None
         for p in packed:
-            if p == newest_packed or now - p.stat().st_mtime <= 90 * DAY:
-                continue
-            try:
-                before = stable_stat(p)
-                record("session-native-archive", p, "delete-expired", bytes=p.stat().st_size)
-                if apply and stable_stat(p) == before and now - p.stat().st_mtime > 90 * DAY:
-                    safe(p, home).unlink()
-            except (OSError, ValueError) as exc:
-                record("session-native-archive", p, "blocked", error=str(exc))
+            record("session-native-archive", p, "retained", reason="session-archives-have-no-expiry", bytes=p.stat().st_size)
     if cold.exists():
         for p in tree(cold, home):
-            if p.is_file() and p.suffix == ".gz" and now - p.stat().st_mtime > 90 * DAY:
-                try:
-                    receipt = p.with_name(p.name + ".receipt.json")
-                    value = json.loads(receipt.read_text())
-                    if value.get("owner") != OWNER or value.get("archive_sha256") != sha256(p):
-                        raise ValueError("unowned or modified archive")
-                    record("session-archive", p, "delete-expired", bytes=p.stat().st_size)
-                    if apply:
-                        safe(p, home).unlink()
-                        safe(receipt, home).unlink()
-                except (OSError, ValueError) as exc:
-                    record("session-archive", p, "blocked", error=str(exc))
+            if p.is_file() and p.suffix == ".gz":
+                record("session-archive", p, "retained", reason="session-archives-have-no-expiry", bytes=p.stat().st_size)
 
 
 def clean_tmp(home: Path, apply: bool, now: float, record):
@@ -389,56 +377,111 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--only", choices=["all", "worktrees", "retention"], default="all")
+    parser.add_argument("--only", choices=["all", "worktrees", "retention", "storage"], default="all")
+    parser.add_argument("--plan", type=Path, help="preview plan output inside CODEX_HOME")
+    parser.add_argument("--approved-plan", type=Path)
+    parser.add_argument("--plan-sha256")
     args = parser.parse_args()
     home = active_codex_home()
+    config = home / "maintenance" / "local.json"
+    value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+    source_parent = Path(__file__).resolve().parent
+    pinned = {source_parent if source_parent.name == "runtime" else source_parent.parent}
+    cwd = Path.cwd()
+    if not home.is_relative_to(cwd):
+        pinned.add(cwd)  # Keep active checkouts; scheduler home/ancestors are containers.
+    pinned.update(Path(p) for p in value.get("pinned_worktrees", []))
+    pinned.update(Path(p) for p in value.get("storage", {}).get("pinned", []))
+    guard = Guard(home, pinned, value.get("storage", {}).get("protected", []))
+    rules_hash = hashlib.sha256(b"".join(Path(__file__).with_name(name).read_bytes() for name in ("maintenance.py", "storage_lifecycle.py", "workload.py")) + json.dumps(value, sort_keys=True).encode()).hexdigest()
+    approved = None
+    if args.apply:
+        if not args.approved_plan or not args.plan_sha256:
+            parser.error("--apply requires --approved-plan and its reviewed --plan-sha256")
+        safe(args.approved_plan, home)
+        if sha256(args.approved_plan) != args.plan_sha256:
+            parser.error("approved plan hash mismatch")
+        approved = json.loads(args.approved_plan.read_text(encoding="utf-8"))
+        if approved.get("home") != str(home) or approved.get("rules_hash") != rules_hash or approved.get("only") != args.only:
+            parser.error("approved plan scope or runtime changed; preview again")
     state = safe(home / "maintenance", home)
     state.mkdir(exist_ok=True)
     lock = state / "run.lock"
     # Kernel lock auto-releases after a crash; the file itself is persistent.
-    with lock.open("a+b") as guard:
+    with lock.open("a+b") as run_guard:
         try:
             if os.name == "nt":
                 import msvcrt
-                guard.seek(0)
-                if not guard.read(1):
-                    guard.write(b"0")
-                    guard.flush()
-                guard.seek(0)
-                msvcrt.locking(guard.fileno(), msvcrt.LK_NBLCK, 1)
+                run_guard.seek(0)
+                if not run_guard.read(1):
+                    run_guard.write(b"0")
+                    run_guard.flush()
+                run_guard.seek(0)
+                msvcrt.locking(run_guard.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
-                fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(run_guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             print("Another maintenance run holds the lock")
             return 2
         stamp = time.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
         report = safe(state / "reports" / (stamp + ".jsonl"), home)
         report.parent.mkdir(exist_ok=True)
+        plan = safe(args.plan or state/"plans"/(stamp+".json"), home)
+        guard.pins.update({report, plan})
+        if args.approved_plan:
+            guard.pins.add(args.approved_plan)
         failures = []
-        with report.open("x", encoding="utf-8") as stream:
+        mutations = []
+        def identity(item):
+            return (item["kind"], item["path"], item["action"], item["fingerprint"], json.dumps(item.get("entries"), sort_keys=True))
+        allowed = {identity(item) for item in approved["mutations"]} if approved else set()
+        now = time.time()
+        from workload import work_slot
+        with work_slot(home, heavy=True), report.open("x", encoding="utf-8") as stream:
             def record(kind, path, action, **details):
+                if action in {"eligible", "delete-expired", "compress", "prune-projects"}:
+                    # Storage already supplies its complete checked snapshot.
+                    # Apply's remove() resnapshots immediately before mutation.
+                    if action != "delete-expired" or "fingerprint" not in details:
+                        info = snapshot(path, home if Path(path).is_relative_to(home) else Path(path).parent, guard)
+                        if info.pinned or now - info.latest <= 3 * DAY:
+                            raise ValueError("pinned-or-recent-candidate-retained")
+                        details.setdefault("fingerprint", info.fingerprint)
+                    item = {"kind": kind, "path": str(path), "action": action, **details}
+                    if approved is not None and identity(item) not in allowed:
+                        raise ValueError("candidate-not-in-approved-preview")
+                    mutations.append(item)
                 value = {"kind": kind, "path": str(path), "action": action, "apply": args.apply, **details}
                 stream.write(json.dumps(value, ensure_ascii=False) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
+                if args.apply:
+                    stream.flush()
+                    os.fsync(stream.fileno())
                 print(json.dumps(value, ensure_ascii=False), flush=True)
                 if action == "blocked":
                     failures.append(value)
-            now = time.time()
-            config = home / "maintenance" / "local.json"
-            pinned = {Path.cwd().resolve(), Path(__file__).resolve().parent.parent}
-            if config.exists():
-                value = json.loads(config.read_text(encoding="utf-8"))
-                pinned.update(Path(p).resolve() for p in value.get("pinned_worktrees", []))
+            import storage_lifecycle
+            def storage_action():
+                guard.pins.update(path for path in recent_cwds(home, now) if not home.is_relative_to(path))
+                storage_lifecycle.sweep(home, args.apply, now, record, guard, value, git)
+                storage_lifecycle.prune_projects(home, args.apply, now, record, guard)
             for name, action in [("worktrees", lambda: clean_worktrees(home, args.apply, now, record, pinned)),
-                                 ("retention", lambda: (retain_sessions(home, args.apply, now, record), clean_tmp(home, args.apply, now, record)))]:
+                                 ("retention", lambda: retain_sessions(home, args.apply, now, record, pinned)),
+                                 ("storage", storage_action)]:
                 if args.only in (name, "all"):
                     try:
                         action()
                     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
                         record(name, home, "blocked", error=str(exc))
-        print(json.dumps({"report": str(report), "sha256": sha256(report), "blocked": len(failures)}))
+            # Preview changes no payload. Flush its complete journal once before
+            # publishing a plan; apply intents/outcomes remain synchronous above.
+            stream.flush()
+            os.fsync(stream.fileno())
+        if not args.apply:
+            if plan.exists():
+                raise ValueError("plan output already exists")
+            atomic_write_json(plan, {"home": str(home), "only": args.only, "rules_hash": rules_hash, "created": now, "mutations": mutations})
+        print(json.dumps({"report": str(report), "sha256": sha256(report), "blocked": len(failures), "plan": str(plan) if not args.apply else None, "plan_sha256": sha256(plan) if not args.apply else None}))
         return 1 if failures else 0
 
 

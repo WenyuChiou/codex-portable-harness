@@ -28,18 +28,26 @@ class TestRunTests(unittest.TestCase):
         result = self.cli("import os,tempfile;from pathlib import Path;p=Path(tempfile.gettempdir());assert p==Path(os.environ['CODEX_TEST_SCRATCH']);(p/'probe').write_text('scratch');print('complete output')")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b"complete output", result.stdout)
-        self.assertEqual(list((self.home/"maintenance/test-runs").iterdir()), [])
+        self.assertEqual(list((self.home/"tmp/test-runs").iterdir()), [])
         logs = list((self.home/"maintenance/test-logs").glob("*.log"))
         self.assertIn(b"complete output", logs[0].read_bytes())
 
     def test_failure_keeps_diagnostics_until_expiry(self):
         result = self.cli("import os,sys;from pathlib import Path;(Path(os.environ['CODEX_TEST_SCRATCH'])/'failure').write_text('diagnostic');sys.exit(7)")
         self.assertEqual(result.returncode, 7, result.stderr)
-        path = next((self.home/"maintenance/test-runs").iterdir())
+        path = next((self.home/"tmp/test-runs").iterdir())
         self.assertEqual((path/"scratch/failure").read_text(), "diagnostic")
         self.assertEqual(runner.sweep(self.home, True), 0)
         self.assertTrue(path.exists())
         self.assertEqual(runner.sweep(self.home, True, time.time()+8*runner.DAY), 0)
+        self.assertFalse(path.exists())
+
+    def test_failed_scratch_expires_after_three_days(self):
+        root,_=runner.areas(self.home)
+        path=root/('c'*32);path.mkdir()
+        (path/'run.json').write_text(json.dumps({'owner':runner.OWNER,'id':path.name,'state':'finished','exit_code':7,'started':time.time()}))
+        (path/'failure').write_text('diagnostic retained for three days')
+        self.assertEqual(runner.sweep(self.home,True,time.time()+4*runner.DAY),0)
         self.assertFalse(path.exists())
 
     def test_active_old_run_survives_sweep_and_foreign_data_survives(self):
@@ -63,6 +71,20 @@ class TestRunTests(unittest.TestCase):
             with self.assertRaises(runner.ActiveRun):
                 with runner.lease(lock):
                     self.fail('busy lease must not be acquired')
+
+    def test_explicit_protected_scratch_keeps_bytes_before_payload_read(self):
+        root,_=runner.areas(self.home)
+        path=root/('d'*32);path.mkdir()
+        (path/'run.json').write_text(json.dumps({'owner':runner.OWNER,'id':path.name,'started':0,'state':'finished','exit_code':0}))
+        payload=path/'necessary';payload.write_text('protected fixture bytes')
+        (self.home/'maintenance/local.json').write_text(json.dumps({'storage':{'protected':[str(path)]}}))
+        original=Path.read_text
+        def checked_read(item,*args,**kwargs):
+            if item.is_relative_to(path):self.fail('protected payload was read')
+            return original(item,*args,**kwargs)
+        with patch.object(Path,'read_text',checked_read):
+            self.assertEqual(runner.sweep(self.home,True,time.time()+4*runner.DAY),1)
+        self.assertEqual(payload.read_text(),'protected fixture bytes')
 
     def test_timeout_terminates_the_spawned_process_tree(self):
         pidfile = self.home/"child.pid"
@@ -93,7 +115,7 @@ class TestRunTests(unittest.TestCase):
     def test_pytest_override_is_rejected_before_scratch_creation(self):
         with self.assertRaises(ValueError):
             runner.execute(self.home,[sys.executable,'-m','pytest','--basetemp=/outside'],10)
-        self.assertFalse((self.home/'maintenance/test-runs').exists())
+        self.assertFalse((self.home/'tmp/test-runs').exists())
 
     def test_changed_log_is_retained_and_reported(self):
         self.assertEqual(self.cli("print('evidence')").returncode,0)
@@ -117,7 +139,7 @@ class TestRunTests(unittest.TestCase):
             self.assertEqual(process.returncode,0,err)
             outputs.append(json.loads(out.splitlines()[0])['scratch'])
         self.assertNotEqual(*outputs)
-        self.assertEqual(list((self.home/'maintenance/test-runs').iterdir()),[])
+        self.assertEqual(list((self.home/'tmp/test-runs').iterdir()),[])
 
     def test_nested_link_blocks_cleanup_and_external_payload_survives(self):
         root,_=runner.areas(self.home)
@@ -152,7 +174,7 @@ class TestRunTests(unittest.TestCase):
                 self.assertEqual(runner.sweep(self.home,True),0)
         with patch.object(runner,'atomic_write_json',side_effect=publish_then_sweep):
             self.assertEqual(runner.execute(self.home,[sys.executable,'-c','print("successful child")'],5),0)
-        self.assertEqual(list((self.home/'maintenance/test-runs').iterdir()),[])
+        self.assertEqual(list((self.home/'tmp/test-runs').iterdir()),[])
 
     def test_abandoned_run_log_gets_an_expiring_receipt(self):
         root,logs=runner.areas(self.home)

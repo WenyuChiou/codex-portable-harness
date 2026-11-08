@@ -16,8 +16,9 @@ caches, machine identities, or host-local paths.
 ## Commands
 
 Windows setup includes [scheduled Codex maintenance](docs/MAINTENANCE.md):
-clean idle worktrees nightly, verified session compression and expiry, temporary
-file expiry, current-user ACL repair, and request-scoped MCP backend processes.
+nightly cleanup previews, verified session compression without archive expiry,
+owned task scratch cleanup, current-user ACL repair, and a disabled
+`codebase-memory-mcp` server. Applying a storage plan requires user approval.
 Existing installations can preview and install it with
 `scripts/install_maintenance.ps1` and `scripts/install_maintenance.ps1 -Apply`.
 
