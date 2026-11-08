@@ -21,7 +21,7 @@ class StorageEntrypoints(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name)/"codex"
+        self.home = Path(self.tmp.name).resolve()/"codex"
         self.home.mkdir()
         (self.home/"maintenance").mkdir()
         (self.home/"maintenance/local.json").write_text(json.dumps({"storage":{"pinned":[str(self.home/"maintenance/reports")]}}))
@@ -51,6 +51,11 @@ class StorageEntrypoints(unittest.TestCase):
         journals=list((self.home/"maintenance/reports").glob("*.jsonl"))
         events=[json.loads(line) for line in journals[0].read_text().splitlines()]
         self.assertTrue(any(x["action"]=="delete-expired" and not x["apply"] for x in events))
+
+    def test_storage_journal_reuses_the_checked_candidate_snapshot(self):
+        self.fixture()
+        with patch.object(m,'snapshot',side_effect=AssertionError('duplicate journal snapshot')):
+            self.plan()
 
     def test_apply_requires_reviewed_plan_and_matching_hash(self):
         self.fixture()
@@ -149,7 +154,7 @@ class StorageEntrypoints(unittest.TestCase):
             def __init__(self,entry):self.entry,self.name=entry,entry.name
             def stat(self,**kwargs):
                 info=self.entry.stat(**kwargs)
-                fields={key:getattr(info,key) for key in ('st_mode','st_size','st_mtime','st_mtime_ns','st_ino')}
+                fields={key:getattr(info,key) for key in ('st_mode','st_size','st_mtime','st_mtime_ns','st_ino','st_ctime')}
                 fields.update(st_birthtime=getattr(info,'st_birthtime',0),st_size=info.st_size+1)
                 return SimpleNamespace(**fields)
         @contextlib.contextmanager

@@ -35,6 +35,12 @@ def overlaps(a, b):
     return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
+def activity(info):
+    # APFS can backdate birthtime when mtime is backdated. ctime also protects
+    # recent metadata changes and Windows/Python versions without birthtime.
+    return max(info.st_mtime, getattr(info, "st_birthtime", 0.), info.st_ctime)
+
+
 class Guard:
     def __init__(self, home, pins=(), protected=()):
         self.home = absolute(home)
@@ -105,7 +111,7 @@ def snapshot(path, root, guard):
         info = os.lstat(native(item)) if info is None else info
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
             raise ValueError("reparse-point")
-        birth = getattr(info, "st_birthtime", 0.)
+        birth = activity(info)
         latest = max(latest, info.st_mtime, birth)
         rel = item.relative_to(path).as_posix()
         digest.update(json.dumps([rel, info.st_size, info.st_mtime_ns, birth, info.st_ino, info.st_mode]).encode())
@@ -384,6 +390,27 @@ def sweep(home, apply, now, record, guard, config, git):
                 if not implicit_owner and path not in owned and value.get("owner") != OWNER and kind != "task-clone":
                     record(kind, path, "retained", reason="ownership-unproven")
                     continue
+                if guard.pinned(path) or value.get("pinned") or value.get("accepted") or value.get("state") == "running":
+                    record(kind, path, "retained", reason="pinned-accepted-or-running" if value else "pinned-or-active")
+                    continue
+                if kind == "tmp" and path.name == "test-runs":
+                    record(kind,path,"retained",reason="managed-test-run-sweep")
+                    continue
+                root_age = now - activity(os.lstat(native(path)))
+                if root_age <= 3 * DAY:
+                    record(kind, path, "retained", reason="recent-within-three-days")
+                    continue
+                if root_age <= days * DAY:
+                    record(kind, path, "retained", reason="within-retention")
+                    continue
+                if kind == "task-clone":
+                    marker=path/".git"
+                    if not os.path.lexists(marker):
+                        record(kind,path,"retained",reason="non-git-task-ownership-required");continue
+                    if not stat.S_ISDIR(os.lstat(native(marker)).st_mode):
+                        record(kind,path,"retained",reason="linked-worktree-other-owner");continue
+                    if str(path) not in backups:
+                        record(kind,path,"retained",reason="external-commit-backup-required");continue
                 info = snapshot(path, root, guard)
                 details = {"bytes": info.bytes, "files": info.files}
                 reason = None

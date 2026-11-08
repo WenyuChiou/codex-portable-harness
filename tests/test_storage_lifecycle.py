@@ -14,6 +14,7 @@ except ImportError:
     tomllib = None
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -127,6 +128,22 @@ class StorageLifecycleTests(unittest.TestCase):
         os.utime(path, (stamp, stamp))
         self.sweep(now=actual_now)
         self.assertEqual(self.assert_kept(path)["reason"], "recent-within-three-days")
+
+    def test_recent_metadata_retains_backdated_birth_and_mtime(self):
+        path=self.write(self.home/'tmp/backdated.bin')
+        now=time.time();old=now-100*lifecycle.DAY
+        os.utime(path,(old,old))
+        original=os.lstat
+        def metadata(item,*args,**kwargs):
+            info=original(item,*args,**kwargs)
+            lexical=Path(os.fsdecode(item).removeprefix('\\\\?\\'))
+            if lifecycle.absolute(lexical)!=path:return info
+            fields={key:getattr(info,key) for key in ('st_mode','st_size','st_mtime','st_mtime_ns','st_ino')}
+            fields.update(st_birthtime=old,st_ctime=now,st_file_attributes=getattr(info,'st_file_attributes',0))
+            return SimpleNamespace(**fields)
+        with patch.object(os,'lstat',side_effect=metadata):
+            self.sweep(now=now)
+        self.assertEqual(self.assert_kept(path)['reason'],'recent-within-three-days')
 
     def test_markers_config_pins_and_accepted_receipts_retain_outputs(self):
         candidates = []
@@ -254,6 +271,28 @@ class StorageLifecycleTests(unittest.TestCase):
         self.assertFalse(candidate.exists(), self.events)
         self.assertEqual(maintenance.git(source, "rev-parse", "HEAD"), head)
         self.assertEqual((source / "tracked").read_bytes(), b"accepted committed outcome\n")
+
+    def test_clean_clone_proof_rejects_missing_external_backup(self):
+        _,candidate,_=self.clone()
+        reason=lifecycle.clone_retained_elsewhere(candidate,None,lifecycle.Guard(self.home),maintenance.git)
+        self.assertEqual(reason,'external-commit-backup-required')
+
+    def test_known_retained_candidates_skip_payload_scans(self):
+        pinned=self.write(self.home/'visualizations/pinned/necessary').parent
+        recent=self.write(self.home/'tmp/recent/necessary').parent
+        self.age(pinned)
+        os.utime(recent,(self.now-lifecycle.DAY,)*2)
+        guard=lifecycle.Guard(self.home,[pinned])
+        with patch.object(lifecycle,'snapshot',side_effect=AssertionError('retained payload was scanned')):
+            lifecycle.sweep(self.home,False,self.now,self.record,guard,{},maintenance.git)
+        self.assertTrue(pinned.exists());self.assertTrue(recent.exists())
+
+    def test_unbacked_clone_skips_payload_and_git_probes(self):
+        _,candidate,config=self.clone();self.age(candidate)
+        del config['storage']['clone_backups']
+        with patch.object(lifecycle,'snapshot',side_effect=AssertionError('unbacked clone scanned')):
+            self.sweep(config)
+        self.assertEqual(self.assert_kept(candidate)['reason'],'external-commit-backup-required')
 
     def test_unpublished_clone_retained_when_backup_lacks_commit(self):
         source, candidate, config = self.clone()

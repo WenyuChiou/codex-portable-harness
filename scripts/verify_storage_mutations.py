@@ -20,7 +20,8 @@ T = "test_test_run.TestRunTests."
 CASES = [
     ("expiry", "storage_lifecycle.py", "elif now - info.latest <= days * DAY:", "elif True:", L+"test_expired_outputs_removed_only_after_apply"),
     ("recent", "storage_lifecycle.py", "elif now - info.latest <= 3 * DAY:", "elif False:", L+"test_recent_descendant_and_three_day_boundary_are_retained"),
-    ("creation-time", "storage_lifecycle.py", 'birth = getattr(info, "st_birthtime", 0.)', 'birth = 0.', L+"test_new_creation_time_retains_backdated_file"),
+    ("creation-time", "storage_lifecycle.py", 'return max(info.st_mtime, getattr(info, "st_birthtime", 0.), info.st_ctime)', 'return info.st_mtime', L+"test_new_creation_time_retains_backdated_file"),
+    ("metadata-change-time", "storage_lifecycle.py", 'return max(info.st_mtime, getattr(info, "st_birthtime", 0.), info.st_ctime)', 'return max(info.st_mtime, getattr(info, "st_birthtime", 0.))', L+"test_recent_metadata_retains_backdated_birth_and_mtime"),
     ("pins", "storage_lifecycle.py", "return Snapshot(digest.hexdigest(), latest, size, count, pinned, repositories)", "return Snapshot(digest.hexdigest(), latest, size, count, False, repositories)", L+"test_markers_config_pins_and_accepted_receipts_retain_outputs"),
     ("ancestor-pin", "storage_lifecycle.py", "for ancestor in path.parents:", "for ancestor in ():", E+"test_ancestor_pin_protects_old_output_children"),
     ("protected-roots", "storage_lifecycle.py", "if self.forbidden(path) or self.forbidden(root):", "if False:", L+"test_protected_paths_rejected_before_filesystem_access"),
@@ -28,7 +29,7 @@ CASES = [
     ("reparse", "storage_lifecycle.py", 'if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:', 'if False:', L+("test_real_windows_junction_keeps_external_fixture_target" if os.name == "nt" else "test_symlink_candidate_keeps_external_fixture_target")),
     ("readonly", "storage_lifecycle.py", "os.chmod(name, info.st_mode | stat.S_IWUSR)", "pass  # removed readonly recovery", L+"test_long_path_readonly_file_removed_inside_verified_candidate"),
     ("fresh-windows-metadata", "storage_lifecycle.py", 'visit(child, os.lstat(native(child)) if os.name == "nt" else entry.stat(follow_symlinks=False))', 'visit(child, entry.stat(follow_symlinks=False))', E+"test_fresh_metadata_ignores_stale_directory_entry_attributes"),
-    ("clone-external-proof", "storage_lifecycle.py", 'return "external-commit-backup-required"', 'return None', L+"test_clean_clone_requires_external_reachable_commit_proof"),
+    ("clone-external-proof", "storage_lifecycle.py", 'return "external-commit-backup-required"', 'return None', L+"test_clean_clone_proof_rejects_missing_external_backup"),
     ("clone-unpublished-commit", "storage_lifecycle.py", 'if not git(backup, "for-each-ref", "--contains", commit, "--format=%(refname)", "refs/heads", "refs/tags", "refs/stash").strip():', 'if False:', L+"test_unpublished_clone_retained_when_backup_lacks_commit"),
     ("clone-dirty", "storage_lifecycle.py", 'if git(path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"):', 'if False:', L+"test_dirty_clone_retains_uncommitted_work"),
     ("clone-ignored-payload", "storage_lifecycle.py", 'if any(not set(Path(os.fsdecode(name)).parts) & REBUILDABLE for name in ignored.split(b"\\0") if name):', 'if False:', L+"test_ignored_necessary_bytes_without_restoration_copy_retain_clone"),
@@ -52,6 +53,10 @@ CASES = [
     ("test-configured-protection", "test_run.py", ', data.get("storage", {}).get("protected", []))', ')', T+"test_explicit_protected_scratch_keeps_bytes_before_payload_read"),
     ("protected-child-before-stat", "storage_lifecycle.py", 'if guard.forbidden(child):\n                    raise ValueError("protected-descendant")', 'if False:\n                    raise ValueError("protected-descendant")', L+"test_snapshot_rejects_protected_child_before_stat"),
     ("protected-recursive-discovery", "storage_lifecycle.py", '    if guard.forbidden(root) or guard.forbidden(root/".git"):\n        yield root; return\n    try:\n        guard.check(root, root.parent, allow_missing=True)\n    except (OSError, ValueError):\n        yield root; return\n', '', L+"test_recursive_discovery_rejects_protected_descendants_before_access"),
+    ("skip-pinned-payload-walk", "storage_lifecycle.py", 'if guard.pinned(path) or value.get("pinned") or value.get("accepted") or value.get("state") == "running":', 'if False:', L+"test_known_retained_candidates_skip_payload_scans"),
+    ("skip-recent-payload-walk", "storage_lifecycle.py", '                if root_age <= 3 * DAY:\n                    record(kind, path, "retained", reason="recent-within-three-days")\n                    continue\n                if root_age <= days * DAY:\n                    record(kind, path, "retained", reason="within-retention")\n                    continue\n', '', L+"test_known_retained_candidates_skip_payload_scans"),
+    ("skip-unbacked-clone-walk", "storage_lifecycle.py", 'if str(path) not in backups:', 'if False:', L+"test_unbacked_clone_skips_payload_and_git_probes"),
+    ("reuse-journal-snapshot", "maintenance.py", 'if action != "delete-expired" or "fingerprint" not in details:', 'if True:', E+"test_storage_journal_reuses_the_checked_candidate_snapshot"),
 ]
 
 

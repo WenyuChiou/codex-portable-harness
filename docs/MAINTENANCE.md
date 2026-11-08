@@ -166,7 +166,7 @@ are outside this process limit. New clones and worktrees belong under
 `legacy_paths`, `clone_roots`, exact `owned_paths`, `clone_backups`, `pinned`,
 and optional additional `protected` paths. Shared TEMP names alone establish no
 ownership. Missing/unreadable/redirected candidates are retained and journaled.
-All policies retain activity within three days (including creation time), pins,
+All policies retain activity within three days (including creation and metadata-change time), pins,
 accepted outcomes and unbacked user edits. Ancestor pin files are `.codex-pin`,
 `.maintenance-pin` or `.lifecycle-pin`.
 

@@ -422,10 +422,13 @@ def main() -> int:
         with work_slot(home, heavy=True), report.open("x", encoding="utf-8") as stream:
             def record(kind, path, action, **details):
                 if action in {"eligible", "delete-expired", "compress", "prune-projects"}:
-                    info = snapshot(path, home if Path(path).is_relative_to(home) else Path(path).parent, guard)
-                    if info.pinned or now - info.latest <= 3 * DAY:
-                        raise ValueError("pinned-or-recent-candidate-retained")
-                    details.setdefault("fingerprint", info.fingerprint)
+                    # Storage already supplies its complete checked snapshot.
+                    # Apply's remove() resnapshots immediately before mutation.
+                    if action != "delete-expired" or "fingerprint" not in details:
+                        info = snapshot(path, home if Path(path).is_relative_to(home) else Path(path).parent, guard)
+                        if info.pinned or now - info.latest <= 3 * DAY:
+                            raise ValueError("pinned-or-recent-candidate-retained")
+                        details.setdefault("fingerprint", info.fingerprint)
                     item = {"kind": kind, "path": str(path), "action": action, **details}
                     if approved is not None and identity(item) not in allowed:
                         raise ValueError("candidate-not-in-approved-preview")
