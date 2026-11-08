@@ -130,6 +130,36 @@ are outside this installer. Full native server updates remain a separate task.
 
 ## Evidence and recovery
 
+### Test scratch at the point of execution
+
+Use the project's Python interpreter to invoke the installed runner:
+
+```powershell
+python "$env:USERPROFILE/.codex/maintenance/runtime/test_run.py" --timeout 600 --pytest -- -q tests
+python "$env:USERPROFILE/.codex/maintenance/runtime/test_run.py" --timeout 600 -- python -m unittest discover -s tests -v
+```
+
+Each invocation owns a unique directory under `maintenance/test-runs`. TEMP,
+TMP, TMPDIR, coverage, mypy and ruff caches point into that run. Pytest mode
+supplies a unique basetemp and cache_dir; `python -m pytest` commands are also
+recognized. Python bytecode writes are disabled in child processes. Test scripts
+can use `CODEX_TEST_SCRATCH` for their own disposable outputs. Source files and
+deliverables should keep their normal paths.
+
+A successful run removes its scratch immediately. Failed/timeout scratch stays
+for seven days; complete stdout/stderr and its receipt stay in `test-logs` for
+30 days. Stop/SessionEnd hooks and the nightly task sweep abandoned/expired runs,
+skip fresh payloads, respect a live kernel
+lease and retains unreadable or redirected trees. Windows creates the test
+process suspended and contains its descendants in a kill-on-close Job Object
+before execution. Timeout, normal completion and runner death reap that job.
+POSIX uses process groups; a surviving recorded group protects an abandoned run.
+
+The wrapper controls scratch used through these variables and pytest options.
+Tests that explicitly write another path still need their own scoped cleanup.
+Existing sessions must adopt this entry point; installing it cannot redirect an
+already-running test. Unrecognized old repo files remain outside its ownership.
+
 `maintenance/reports` holds decision journals; `maintenance/logs` holds complete
 scheduled stdout/stderr and failed targets. `install-backups` retains the prior
 config, hooks and runtime ownership manifest. Review these local records before

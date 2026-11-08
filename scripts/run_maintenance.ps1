@@ -23,6 +23,10 @@ try {
         & powershell.exe @aclArgs
         if ($LASTEXITCODE -ne 0) { $script:exitCode = 1; Write-Output "ACL repair reported blocked targets: $LASTEXITCODE" }
         if ($Mode -eq 'Nightly') {
+            $testArgs = @('-B',(Join-Path $runtime 'test_run.py'),'--clean')
+            if ($Apply) { $testArgs += '--apply' }
+            & $settings.python @testArgs
+            if ($LASTEXITCODE -ne 0) { $script:exitCode = 1 }
             # Each candidate still gets its own fail-closed filesystem/Git checks.
             $arguments = @('-B',(Join-Path $runtime 'maintenance.py'))
             if ($Apply) { $arguments += '--apply' }

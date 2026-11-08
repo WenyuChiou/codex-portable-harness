@@ -1,9 +1,20 @@
 ---
 name: bounded-agent-harness
-description: Apply portable budgets, checkpoints, and evidence-based stopping rules when coordinating subagents, retries, long-running tool loops, or resumable agent tasks.
+description: Apply portable budgets, checkpoints, and evidence-based stopping rules when coordinating subagents, retries, long-running tool loops, resumable tasks, or running local tests with disposable scratch.
 ---
 
 # Bounded Agent Harness
+
+For local test commands, use the installed `maintenance/runtime/test_run.py`
+under the active Codex home with an explicit `--timeout SECONDS`. Use the
+project's Python to run `test_run.py --timeout SECONDS --pytest -- PYTEST_ARGS`,
+or `test_run.py --timeout SECONDS -- COMMAND ...` for other test runners. Put
+disposable script outputs in `CODEX_TEST_SCRATCH`; keep deliverables in their
+intended location. Success removes owned scratch, failure retains it seven
+days, and the nightly task handles abandoned runs. This route adds no budget
+checkpoint or orchestration loop for a fixed native test command. If the
+entrypoint is unavailable, report that gap and use an explicitly owned temp
+directory with a foreground timeout and task-end cleanup.
 
 Use the canonical policy at
 `${CODEX_HOME}/portable-harness/policies/agent-budget.yaml`. If `CODEX_HOME` is
