@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import json
 import math
 import os
@@ -42,7 +43,7 @@ def lease(path):
                 import fcntl
                 fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            if exc.errno in (11, 13, 36):
+            if isinstance(exc, BlockingIOError) or exc.errno in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise ActiveRun("runner still holds its lease") from exc
             raise
         yield guard

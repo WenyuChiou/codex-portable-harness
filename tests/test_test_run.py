@@ -56,6 +56,14 @@ class TestRunTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertTrue(foreign.exists())
 
+    def test_macos_blocking_io_error_is_an_active_lease(self):
+        lock=self.home/'test.lock'
+        operation='msvcrt.locking' if os.name=='nt' else 'fcntl.flock'
+        with patch(operation,side_effect=BlockingIOError(35,'resource temporarily unavailable')):
+            with self.assertRaises(runner.ActiveRun):
+                with runner.lease(lock):
+                    self.fail('busy lease must not be acquired')
+
     def test_timeout_terminates_the_spawned_process_tree(self):
         pidfile = self.home/"child.pid"
         code = "import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);Path(sys.argv[1]).write_text(str(p.pid));time.sleep(60)"
