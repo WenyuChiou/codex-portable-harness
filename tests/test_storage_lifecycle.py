@@ -390,14 +390,61 @@ class StorageLifecycleTests(unittest.TestCase):
         receipt = json.dumps({"redundant_copy": str(duplicate)}).encode()
         self.write(original / ".lifecycle.json", receipt)
         self.age(original)
-        self.sweep()
+        config = {"storage": {"pinned": [str(duplicate)]}}
+        self.sweep(config)
         self.assert_kept(original)
         self.assertEqual(payload.read_bytes(), b"irreplaceable preserved bytes")
         shutil.copytree(original, duplicate)
         self.age(original)
-        self.sweep()
+        self.sweep(config)
         self.assertFalse(original.exists(), self.events)
         self.assertEqual((duplicate / "needed.bin").read_bytes(), b"irreplaceable preserved bytes")
+
+    def test_cleanup_owned_duplicate_cannot_remove_both_restoration_copies(self):
+        source = self.home / "maintenance/preserved-worktrees/original"
+        duplicate = self.home / "cleanup-owned-copy"
+        self.write(source / "needed.bin", b"unique restoration bytes")
+        self.write(source / ".lifecycle.json", json.dumps({"redundant_copy": str(duplicate)}).encode())
+        shutil.copytree(source, duplicate)
+        self.age(source)
+        self.age(duplicate)
+        config = {"storage": {"owned_paths": [str(duplicate)]}}
+        self.sweep(config, apply=False)
+        self.assertEqual(self.event(source)["action"], "retained")
+        self.sweep(config)
+        self.assertEqual((source / "needed.bin").read_bytes(), b"unique restoration bytes")
+
+    def test_configured_restoration_pin_survives_later_sweeps(self):
+        source = self.home / "maintenance/preserved-worktrees/original"
+        duplicate = self.home / "cleanup-owned-copy"
+        self.write(source / "needed.bin", b"persistent restoration bytes")
+        self.write(source / ".lifecycle.json", json.dumps({"redundant_copy": str(duplicate)}).encode())
+        shutil.copytree(source, duplicate)
+        self.age(source)
+        self.age(duplicate)
+        config = {"storage": {"owned_paths": [str(duplicate)], "pinned": [str(duplicate)]}}
+        for now in (self.now, self.now + 400 * lifecycle.DAY):
+            lifecycle.sweep(self.home, True, now, self.record, lifecycle.Guard(self.home), config, maintenance.git)
+            self.assertFalse(source.exists())
+            self.assertTrue((duplicate / "needed.bin").exists())
+            self.assertEqual((duplicate / "needed.bin").read_bytes(), b"persistent restoration bytes")
+
+    def test_partial_restoration_pin_does_not_protect_a_sibling_payload(self):
+        source = self.home / "maintenance/preserved-worktrees/original"
+        duplicate = self.home / "partially-pinned-copy"
+        self.write(source / "keep.bin", b"pinned sibling")
+        self.write(source / "drop/needed.bin", b"irreplaceable sibling bytes")
+        self.write(source / ".lifecycle.json", json.dumps({"redundant_copy": str(duplicate)}).encode())
+        shutil.copytree(source, duplicate)
+        self.age(source)
+        self.age(duplicate)
+        config = {"storage": {"pinned": [str(duplicate / "keep.bin")],
+                              "owned_paths": [str(duplicate / "drop")]}}
+        self.sweep(config, apply=False)
+        self.assertEqual(self.event(source)["action"], "retained")
+        self.sweep(config)
+        self.assertTrue((source / "drop/needed.bin").exists())
+        self.assertEqual((source / "drop/needed.bin").read_bytes(), b"irreplaceable sibling bytes")
 
     def test_missing_project_requires_three_days_and_preserves_unrelated_toml(self):
         missing = self.home / "gone project"

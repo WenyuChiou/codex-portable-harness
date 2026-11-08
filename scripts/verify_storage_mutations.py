@@ -35,7 +35,7 @@ CASES = [
     ("clone-ignored-payload", "storage_lifecycle.py", 'if any(not set(Path(os.fsdecode(name)).parts) & REBUILDABLE for name in ignored.split(b"\\0") if name):', 'if False:', L+"test_ignored_necessary_bytes_without_restoration_copy_retain_clone"),
     ("preservation-cap", "storage_lifecycle.py", "if size + needed > cap:", "if False:", L+"test_preservation_capacity_keeps_existing_bytes_and_blocks_overflow"),
     ("duplicate-bytes", "storage_lifecycle.py", "return hashes(path) == hashes(target) and", "return True or", L+"test_duplicate_proof_compares_necessary_bytes_not_sizes_or_manifest"),
-    ("sole-preservation-copy", "storage_lifecycle.py", "if not target or not duplicate_verified(path, target, guard):", "if False:", L+"test_preserved_copy_removed_only_with_complete_duplicate"),
+    ("sole-preservation-copy", "storage_lifecycle.py", "if not target or not any(absolute(target).is_relative_to(pin) for pin in permanent_pins) or not duplicate_verified(path, target, guard):", "if False:", L+"test_preserved_copy_removed_only_with_complete_duplicate"),
     ("config-observation", "storage_lifecycle.py", "if now - first <= 3 * DAY:", "if False:", L+"test_missing_project_requires_three_days_and_preserves_unrelated_toml"),
     ("config-changed-section", "storage_lifecycle.py", 'if item.get("section_sha256") == entry_hash else now', 'if True else now', L+"test_changed_project_section_restarts_missing_observation"),
     ("sessions-fourteen-days", "maintenance.py", "age <= 14 * DAY", "age <= 30 * DAY", E+"test_fourteen_day_sessions_archive_and_never_expire"),
@@ -66,6 +66,9 @@ CASES = [
     ("unknown-rollout-tail", "maintenance.py", 'return max(latest, time.time())', 'return latest', E+"test_oversized_rollout_tail_is_retained_conservatively"),
     ("config-backup-ancestry", "storage_lifecycle.py", 'backup = guard.check(home/"maintenance/config-backups"/(fingerprint+".toml"), home, allow_missing=True)', 'backup = home/"maintenance/config-backups"/(fingerprint+".toml")', L+"test_config_backup_reparse_keeps_config_and_external_bytes"),
     ("config-ledger-ancestry", "storage_lifecycle.py", 'ledger_path = guard.check(home/"maintenance/missing-projects.json", home, allow_missing=True)', 'ledger_path = home/"maintenance/missing-projects.json"', L+"test_missing_project_ledger_ancestry_rejected_before_write"),
+    ("preservation-copy-persistent-pin", "storage_lifecycle.py", ' or not any(absolute(target).is_relative_to(pin) for pin in permanent_pins)', '', L+"test_cleanup_owned_duplicate_cannot_remove_both_restoration_copies"),
+    ("preservation-pin-loaded-before-sweep", "storage_lifecycle.py", '    guard.pins.update(permanent_pins)\n', '', L+"test_configured_restoration_pin_survives_later_sweeps"),
+    ("preservation-whole-copy-pin", "storage_lifecycle.py", 'absolute(target).is_relative_to(pin)', 'overlaps(absolute(target), pin)', L+"test_partial_restoration_pin_does_not_protect_a_sibling_payload"),
 ]
 
 

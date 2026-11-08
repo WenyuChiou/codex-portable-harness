@@ -182,6 +182,13 @@ uses seven days and requires exact ownership. Clone removal requires clean statu
 the configured independent `clone_backups` repository. Shared object stores,
 submodules and necessary ignored data retain the clone for inspection.
 
+An expired preservation package is removable only when a byte-verified duplicate
+is covered in full by an explicit `storage.pinned` or `pinned_worktrees` setting
+at its root or an ancestor. A pin to one child cannot protect sibling bytes. The
+configured pin protects that restoration copy throughout this and later sweeps;
+an implicit working-directory pin alone does not establish lasting protection.
+Without that protection, retain the original package even when a duplicate exists.
+
 Project TOML sections expire only after a missing-path observation lasting more
 than three days. Other TOML bytes are preserved, config is backed up, and concurrent
 changes stop the write. SQLite databases require a separate offline, verified

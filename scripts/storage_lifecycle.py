@@ -337,6 +337,8 @@ def sweep(home, apply, now, record, guard, config, git):
     """Each candidate has one disposition; shared roots require explicit ownership."""
     home = absolute(home)
     local = config.get("storage", {})
+    permanent_pins = {absolute(p) for p in [*config.get("pinned_worktrees", []), *local.get("pinned", [])]}
+    guard.pins.update(permanent_pins)
     owned = {absolute(p) for p in local.get("owned_paths", [])}
     backups = {str(absolute(k)): v for k, v in local.get("clone_backups", {}).items()}
     outcome_roots = outcome_pins(home, guard, record)
@@ -439,7 +441,7 @@ def sweep(home, apply, now, record, guard, config, git):
                         reason = "git-tracked-outcome"
                 if kind == "preserved-worktrees" and not reason:
                     target = value.get("redundant_copy")
-                    if not target or not duplicate_verified(path, target, guard):
+                    if not target or not any(absolute(target).is_relative_to(pin) for pin in permanent_pins) or not duplicate_verified(path, target, guard):
                         reason = "sole-preserved-copy"
                 if info.repositories and not reason:
                     if info.repositories != [str(path)]:
