@@ -17,7 +17,7 @@ entrypoint is unavailable, report that gap and use an explicitly owned temp
 directory with a foreground timeout and task-end cleanup.
 
 Run other autonomous commands through `maintenance/runtime/task_run.py` with an
-explicit timeout. Shared kernel leases allow three executing jobs and one heavy
+explicit timeout. Shared kernel leases use `scripts/runtime_settings.py` for process capacity and one heavy
 test suite. New scratch stays under `CODEX_HOME/tmp`; new clones and worktrees
 stay under `CODEX_HOME/worktrees`. Before task completion or abandonment, clear
 owned disposable scratch and report retained paths with their reasons. Preserve
@@ -81,6 +81,12 @@ If policy/checkpoint parsing fails, stop governed execution, diagnose read-only,
 and recover only from verified state; never invent authorization or clear an
 ambiguous legacy blocker. Escalate only when no safe in-scope next step remains.
 
+Existing mandatory preflights/gates must complete successfully before dependent
+mutation. Check each required command's own exit code and applicable decision;
+failure, unknown/parsing error or a stop blocks that mutation even if a later
+command/batch exits 0. Preserve failed evidence and continue safe diagnosis within
+its allowed scope. This is sequencing guidance, not a new runtime or gate.
+
 Do not end a task merely to ask "continue?" after routine maintenance, a review
 correction, or an eligible slice boundary. A scoped action stop does not stop
 independent safe work. Waiting uses the native wait/monitor mechanism, not a
@@ -104,6 +110,16 @@ history, and next step. Never reset totals on a session, model, or slice change.
 Use actual observations; unavailable cost/tokens are unknown, not zero. Honor
 the stricter explicit user/native limit without inventing a new total cap.
 Completion requires acceptance evidence, not budget exhaustion or tool failure.
+
+Keep the original requested entry/action/outcome and applicable version/environment
+in the task's existing acceptance record. Required reload/restart checks remain
+part of that scope; engineering checks, synthetic journeys and actual-user
+acceptance are separate claims. Before retrying an uncertain write, read back its
+outcome. Preserve stable action identity and cumulative attempts across run names;
+sending a handoff is not recipient acknowledgment. The optional read-only checks
+in `docs/TASK_COMPLETION.md` of the portable repository distinguish commands,
+artifacts, UI journeys and handoffs; event claims require trusted source adapters.
+They add no executor, budget, per-poll checkpoint or approval.
 
 Before useful independent delegation, call
 `route_execution.py select --task-class CLASS` with current model availability.

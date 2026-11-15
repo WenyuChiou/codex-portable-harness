@@ -15,6 +15,7 @@ from bootstrap import desired_files
 import model_promotion
 from common import REPO_ROOT, active_codex_home, ensure_within, load_json, sha256
 from validators import validate_host_manifest
+from deployment_state import compare
 
 
 PUBLIC_HARNESS_VERSION = "0.5.1"
@@ -156,7 +157,7 @@ def check_skill_deployment(home: Path) -> list[Finding]:
     for source, relative in desired_files(home):
         expected.add(relative.as_posix())
         destination = home / relative
-        if not destination.exists() or sha256(source) != sha256(destination):
+        if compare(source, destination)["status"] not in ("same", "newline_only"):
             drift.append(relative.as_posix())
     actual: set[str] = set()
     for skill in ("adaptive-response", "bounded-agent-harness"):
@@ -175,6 +176,38 @@ def check_skill_deployment(home: Path) -> list[Finding]:
     if drift:
         return [Finding("FAIL", "skill-diff", f"deploy with bootstrap.py --apply: {', '.join(drift)}")]
     return [Finding("PASS", "skill-diff", "deployed skills match canonical sources")]
+
+
+def check_runtime_deployment(home: Path) -> list[Finding]:
+    from install_maintenance import FILES
+    from maintenance import safe
+    runtime = home / "maintenance" / "runtime"
+    if not runtime.exists():
+        return [Finding("WARN", "runtime-diff", "maintenance runtime not installed")]
+    findings = []
+    for name in FILES:
+        try:
+            row = compare(REPO_ROOT / "scripts" / name, safe(runtime / name, home))
+            ok = row["status"] in ("same", "newline_only")
+            findings.append(Finding("PASS" if ok else "FAIL", "runtime-diff", f"{name}: {json.dumps(row, sort_keys=True)}"))
+        except (OSError, ValueError) as exc:
+            findings.append(Finding("FAIL", "runtime-diff", f"{name}: {exc}"))
+    return findings
+
+
+def check_global_rules(home: Path) -> list[Finding]:
+    from maintenance import safe
+    template = REPO_ROOT / "templates/AGENTS.md"
+    if not template.exists():
+        return [Finding("WARN", "global-rules-diff", "no canonical global template")]
+    try:
+        row = compare(template, safe(home / "AGENTS.md", home))
+        if row["status"] == "missing":
+            return [Finding("WARN", "global-rules-diff", "global rules not installed; no deployment parity claimed")]
+        status = "PASS" if row["status"] in ("same", "newline_only") else "FAIL"
+        return [Finding(status, "global-rules-diff", json.dumps(row, sort_keys=True))]
+    except (OSError, ValueError) as exc:
+        return [Finding("FAIL", "global-rules-diff", str(exc))]
 
 
 def check_exports() -> list[Finding]:
@@ -336,6 +369,8 @@ def run(home: Path, cross_tool: bool, diff: bool, *, codex: str = "codex") -> tu
     findings = check_public_harness() + check_json_documents() + check_repo_content() + check_outer_ignore(home) + check_agent_configuration() + check_cli_compatibility(codex) + check_role_promotion(home, codex=codex)
     if diff:
         findings.extend(check_skill_deployment(home))
+        findings.extend(check_runtime_deployment(home))
+        findings.extend(check_global_rules(home))
     if cross_tool:
         findings.extend(check_exports())
     return findings, host_capabilities(home)

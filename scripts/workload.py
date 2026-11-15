@@ -1,10 +1,11 @@
-"""Kernel leases for three executing jobs and one heavy I/O job. No daemon."""
+"""Kernel leases for the shared process pool and one heavy I/O job. No daemon."""
 from contextlib import contextmanager, ExitStack
 import errno
 import os
 import time
 
 from storage_lifecycle import Guard
+from runtime_settings import GENERAL_JOB_SLOTS
 
 
 @contextmanager
@@ -40,7 +41,7 @@ def work_slot(home, heavy=True, wait=300):
     root.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic()+wait
     with ExitStack() as stack:
-        # Heavy waiters do not occupy the three general execution slots.
+        # Heavy waiters do not occupy general execution slots.
         if heavy:
             while True:
                 try:
@@ -51,7 +52,7 @@ def work_slot(home, heavy=True, wait=300):
                         raise TimeoutError("heavy workload slot wait expired")
                     time.sleep(.1)
         while True:
-            for number in range(3):
+            for number in range(GENERAL_JOB_SLOTS):
                 try:
                     stack.enter_context(lock(guard.check(root/f"job-{number}.lock", home, allow_missing=True)))
                 except BlockingIOError:
@@ -59,5 +60,5 @@ def work_slot(home, heavy=True, wait=300):
                 yield
                 return
             if time.monotonic() >= deadline:
-                raise TimeoutError("three executing jobs already hold slots")
+                raise TimeoutError(f"all {GENERAL_JOB_SLOTS} general workload slots are occupied")
             time.sleep(.1)
