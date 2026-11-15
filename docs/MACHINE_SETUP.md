@@ -4,6 +4,65 @@
 Python 3.10+；目前研究工具依賴清單驗證於 Python 3.12 / Windows。
 其他平台的來源部署與離線測試不等於該平台的完整實機驗收。
 
+## 僅安裝 portable core
+
+下列流程只安裝核心 skills、agents、全域規則與 maintenance runtime；不建立
+排程、不設定模型，也不複製 auth、profile 或 session。完整 Windows 研究環境
+仍使用下一節的 `setup.ps1` 流程，兩者請分開驗收。
+
+```powershell
+$codexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+git clone https://github.com/WenyuChiou/codex-portable-harness.git (Join-Path $codexRoot 'portable-harness')
+if ($LASTEXITCODE -ne 0) { throw 'Clone failed; stop here.' }
+Set-Location (Join-Path $codexRoot 'portable-harness') -ErrorAction Stop
+python -m venv (Join-Path $codexRoot 'portable-harness-runtime')
+if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed; stop here.' }
+$harnessPython = Join-Path $codexRoot 'portable-harness-runtime/Scripts/python.exe'
+function Invoke-HarnessPython {
+    & $harnessPython @args
+    if ($LASTEXITCODE -ne 0) { throw "Harness command failed ($LASTEXITCODE); stop here." }
+}
+Invoke-HarnessPython -m pip install '.'
+Invoke-HarnessPython scripts/bootstrap.py --dry-run
+```
+
+先查看 bootstrap 預覽並確認目標與變更，再執行下一段。
+
+```powershell
+Invoke-HarnessPython scripts/bootstrap.py --apply
+$rulesPlan = Invoke-HarnessPython scripts/install_global_rules.py --dry-run | ConvertFrom-Json -ErrorAction Stop
+$rulesPlan | ConvertTo-Json
+```
+
+停在這裡查看規則預覽。確認目標 home、變更與衝突後，執行下一段表示接受
+剛才顯示的具體計畫；安裝器會再次比對該計畫雜湊，過期預覽不能套用。
+
+```powershell
+Invoke-HarnessPython scripts/install_global_rules.py --apply --expected-plan-sha256 $rulesPlan.plan_sha256
+$runtimePlan = Invoke-HarnessPython scripts/install_maintenance.py --runtime-only | ConvertFrom-Json -ErrorAction Stop
+$runtimePlan | ConvertTo-Json -Depth 6
+```
+
+查看 runtime 預覽，確認後才執行部署與檢查。
+
+```powershell
+Invoke-HarnessPython scripts/install_maintenance.py --runtime-only --apply --expected-plan-sha256 $runtimePlan.plan_sha256
+Invoke-HarnessPython scripts/doctor.py --cross-tool --diff
+```
+
+`pyproject.toml` 以 URL 與 SHA-256 固定 public package dependency。每個 apply
+之前先檢查 preview；衝突必須保留並人工判斷，不使用未知檔案作為 migration
+baseline。此核心流程不執行 `setup.ps1 -Apply`，也不呼叫任何付費模型。
+
+核心安裝不包含專案外掛或模型帳號。新電腦仍須自行安裝 Codex、登入可用帳號，
+並從原生 skills catalog 確認全域規則引用的工作 skills 可用；尤其兩個以上
+並行 delegates 需要 `agent-collab-workspace` 的 splitter、reconciler 與 acceptance
+gate。缺少時先補安裝，不把 core doctor 通過當成全部工作 skills 已部署。
+目前 bootstrap／規則／runtime 部署腳本、doctor 與部署後的小指令，已在同一
+Windows 主機的獨立 CODEX_HOME（含空白路徑）驗證；另完成候選來源的 local
+clone、全新 venv 與 pip 安裝。這不等於遠端 clone、另一台實體電腦或其他 OS
+已驗收；新機仍須完成自己的部署比對、登入及需要的實際工具檢查。
+
 ## 首次安裝
 
 先準備 Git、Python 3.12（含 venv/pip）、Node.js/npm、Google Chrome，以及

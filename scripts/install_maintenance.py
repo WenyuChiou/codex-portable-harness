@@ -84,11 +84,15 @@ def patch_mcp(text: str, home: Path, python: str):
 
 def runtime_plan(home: Path, expected_current=None):
     """Inspect only runtime bytes. Explicit pins allow reviewed local migrations."""
+    home = Path(os.path.abspath(home)).resolve()
     runtime = safe(home / "maintenance/runtime", home)
     manifest = safe(home / "maintenance/runtime-ownership.json", home)
-    previous = json.loads(manifest.read_text()) if manifest.exists() else {"files": {}}
+    manifest_raw = manifest.read_bytes() if manifest.exists() else None
+    previous = json.loads(manifest_raw) if manifest_raw is not None else {"files": {}}
     expected_current = expected_current or {}
-    if not isinstance(expected_current, dict) or set(expected_current) - set(FILES):
+    if (not isinstance(expected_current, dict) or set(expected_current) - set(FILES)
+            or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                   for value in expected_current.values())):
         raise ValueError("invalid expected runtime files")
     rows = []
     for name in FILES:
@@ -100,18 +104,39 @@ def runtime_plan(home: Path, expected_current=None):
         if row["status"] == "different" and row["installed_sha256"] not in (previous.get("files", {}).get(name), expected_current.get(name)):
             raise ValueError(f"user-modified runtime conflict: {name}")
         rows.append({"name": name, **row})
-    return rows
+    value = {
+        "schema_version": 1,
+        "kind": "runtime-install-plan",
+        "target_home": str(home),
+        "manifest_sha256": None if manifest_raw is None else hashlib.sha256(manifest_raw).hexdigest(),
+        "expected_current": dict(sorted(expected_current.items())),
+        "files": rows,
+    }
+    payload = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {**value, "plan_sha256": hashlib.sha256(payload).hexdigest()}
 
 
-def _deploy_runtime(home: Path, apply: bool, expected_current=None):
-    rows = runtime_plan(home, expected_current)
-    print(json.dumps({"mode": "runtime-only", "apply": apply, "files": rows}))
-    if not apply:
-        return rows
+def _verify_runtime_plan(plan, expected_plan_sha256):
+    if not isinstance(expected_plan_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_plan_sha256):
+        raise ValueError("runtime-only apply requires expected plan SHA-256")
+    if plan["plan_sha256"] != expected_plan_sha256:
+        raise ValueError("runtime source, target, ownership, home, or migration pins changed since reviewed plan")
+
+
+def _deploy_runtime(home: Path, plan):
+    rows = plan["files"]
     state = safe(home / "maintenance", home)
     runtime = safe(state / "runtime", home)
     manifest = safe(state / "runtime-ownership.json", home)
     before_manifest = manifest.read_bytes() if manifest.exists() else None
+    if (None if before_manifest is None else hashlib.sha256(before_manifest).hexdigest()) != plan["manifest_sha256"]:
+        raise ValueError("runtime ownership changed since reviewed plan")
+    for row in rows:
+        target = safe(runtime / row["name"], home)
+        source = REPO_ROOT / "scripts" / row["name"]
+        if ((sha256(target) if target.exists() else None) != row["installed_sha256"]
+                or sha256(source) != row["source_sha256"]):
+            raise ValueError(f"runtime source or target changed since reviewed plan: {row['name']}")
     backup = safe(state / "install-backups" / (time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex), home)
     backup.mkdir(parents=True)
     runtime.mkdir(parents=True, exist_ok=True)
@@ -150,17 +175,22 @@ def _deploy_runtime(home: Path, apply: bool, expected_current=None):
         installed[name] = actual
     atomic_write_json(manifest, {"owner": "codex-portable-harness", "files": installed})
     print(json.dumps({"runtime_only_applied": True, "backup": str(backup)}))
-    return rows
+    return plan
 
 
-def deploy_runtime(home: Path, apply: bool, expected_current=None):
+def deploy_runtime(home: Path, apply: bool, expected_current=None, expected_plan_sha256=None):
+    home = Path(os.path.abspath(home)).resolve()
+    reviewed = runtime_plan(home, expected_current)
+    print(json.dumps({"mode": "runtime-only", "apply": apply, **reviewed}))
     if not apply:
-        return _deploy_runtime(home, False, expected_current)
-    runtime_plan(home, expected_current)  # Reject conflicts before creating state.
+        return reviewed
+    _verify_runtime_plan(reviewed, expected_plan_sha256)
     state = safe(home / "maintenance", home)
     state.mkdir(parents=True, exist_ok=True)
     with lease(safe(state / "runtime-install.lock", home)):
-        return _deploy_runtime(home, True, expected_current)
+        current = runtime_plan(home, expected_current)
+        _verify_runtime_plan(current, expected_plan_sha256)
+        return _deploy_runtime(home, current)
 
 
 def deploy(home: Path, apply: bool, python: str):
@@ -266,12 +296,15 @@ def main():
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--runtime-only", action="store_true", help="update runtime bytes only; leave config, hooks, schedules and rules unchanged")
     parser.add_argument("--expected-current", type=Path, help="JSON of reviewed current runtime filename to raw SHA-256; runtime-only")
+    parser.add_argument("--expected-plan-sha256", help="exact plan_sha256 printed by the reviewed runtime-only preview")
     args = parser.parse_args()
-    if args.expected_current and not args.runtime_only:
-        parser.error("--expected-current requires --runtime-only")
+    if (args.expected_current or args.expected_plan_sha256) and not args.runtime_only:
+        parser.error("--expected-current and --expected-plan-sha256 require --runtime-only")
+    if args.runtime_only and args.apply and not args.expected_plan_sha256:
+        parser.error("runtime-only --apply requires --expected-plan-sha256 from preview")
     if args.runtime_only:
         expected = json.loads(args.expected_current.read_text(encoding="utf-8")) if args.expected_current else None
-        deploy_runtime(active_codex_home(), args.apply, expected)
+        deploy_runtime(active_codex_home(), args.apply, expected, args.expected_plan_sha256)
         return
     deploy(active_codex_home(), args.apply, str(Path(args.python).resolve()))
 

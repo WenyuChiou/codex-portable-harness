@@ -75,6 +75,9 @@ equivalent, and still rejects real content drift.
 `install_maintenance.py --runtime-only` previews runtime updates without reading
 or editing hooks, config, schedules, global rules or local storage settings.
 `--apply` saves backups and uses the existing raw-hash ownership checks.
+The runtime-only preview returns `plan_sha256`. After reviewing that concrete
+plan, supply `--expected-plan-sha256 <SHA256>` with `--apply`; source bytes,
+target bytes, target home, migration pins and ownership state must still match.
 A reviewed local modification may be migrated with --expected-current pointing
 to an explicit JSON map of filename to current raw SHA-256. A stale pin fails;
 this is not permission to overwrite arbitrary user files. Inspect the preview,

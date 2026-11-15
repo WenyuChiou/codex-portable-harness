@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -183,21 +184,70 @@ class DeploymentTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return installer.deploy_runtime(self.home, **kwargs)
 
+    def apply_reviewed(self, expected_current=None):
+        reviewed = self.deploy(apply=False, expected_current=expected_current)
+        return self.deploy(
+            apply=True,
+            expected_current=expected_current,
+            expected_plan_sha256=reviewed["plan_sha256"],
+        )
+
     def test_runtime_only_preserves_unrelated_and_malformed_config(self):
         saved = {}
         for name in ("config.toml", "hooks.json", "AGENTS.md", "maintenance/local.json"):
             p = self.home / name; p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"existing, possibly malformed content\r\n")
             saved[name] = p.read_bytes()
-        self.deploy(apply=True)
-        self.deploy(apply=True)
+        self.apply_reviewed()
+        self.apply_reviewed()
         for name, content in saved.items():
             self.assertEqual((self.home / name).read_bytes(), content)
         self.assertFalse(any(x.status == "FAIL" for x in doctor.check_runtime_deployment(self.home)))
 
     def test_preview_is_write_free(self):
-        self.deploy(apply=False)
+        reviewed = self.deploy(apply=False)
+        self.assertEqual(reviewed["kind"], "runtime-install-plan")
+        self.assertEqual(reviewed["target_home"], str(self.home.resolve()))
+        self.assertRegex(reviewed["plan_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(reviewed, self.deploy(apply=False))
         self.assertEqual(list(self.home.iterdir()), [])
+        with self.assertRaisesRegex(ValueError, "requires expected plan"):
+            self.deploy(apply=True)
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_source_changed_after_preview_is_rejected_write_free(self):
+        source_root = self.home.parent / "reviewed-source"
+        scripts = source_root / "scripts"
+        scripts.mkdir(parents=True)
+        for name in installer.FILES:
+            shutil.copy2(installer.REPO_ROOT / "scripts" / name, scripts / name)
+        with patch.object(installer, "REPO_ROOT", source_root):
+            reviewed = self.deploy(apply=False)
+            (scripts / "common.py").write_text("# changed after preview\n")
+            with self.assertRaisesRegex(ValueError, "changed since reviewed plan"):
+                self.deploy(apply=True, expected_plan_sha256=reviewed["plan_sha256"])
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_reviewed_plan_rejects_wrong_home_and_changed_manifest(self):
+        reviewed = self.deploy(apply=False)
+        other = self.home.parent / "other-codex"
+        other.mkdir()
+        with self.assertRaisesRegex(ValueError, "changed since reviewed plan"):
+            installer.deploy_runtime(
+                other, apply=True, expected_plan_sha256=reviewed["plan_sha256"]
+            )
+        self.assertEqual(list(other.iterdir()), [])
+        self.apply_reviewed()
+        reviewed = self.deploy(apply=False)
+        manifest = self.home / "maintenance/runtime-ownership.json"
+        backups = self.home / "maintenance/install-backups"
+        before_backups = sorted(backups.iterdir())
+        manifest.write_bytes(manifest.read_bytes() + b" \n")
+        before = manifest.read_bytes()
+        with self.assertRaisesRegex(ValueError, "changed since reviewed plan"):
+            self.deploy(apply=True, expected_plan_sha256=reviewed["plan_sha256"])
+        self.assertEqual(manifest.read_bytes(), before)
+        self.assertEqual(sorted(backups.iterdir()), before_backups)
 
     def test_global_rules_drift_is_detected(self):
         self.assertEqual(doctor.check_global_rules(self.home)[0].status, "WARN")
@@ -220,7 +270,7 @@ class DeploymentTests(unittest.TestCase):
         state = self.home / "maintenance"
         state.mkdir()
         with installer.lease(state / "runtime-install.lock"):
-            for action in (lambda: self.deploy(apply=True),
+            for action in (lambda: self.apply_reviewed(),
                            lambda: installer.deploy(self.home, True, sys.executable)):
                 with contextlib.redirect_stdout(io.StringIO()):
                     with self.assertRaises((OSError, RuntimeError)):
@@ -228,7 +278,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse((state / "runtime-ownership.json").exists())
 
     def test_edit_during_temp_write_is_retained(self):
-        self.deploy(apply=True)
+        self.apply_reviewed()
         p = self.home / "maintenance/runtime/workload.py"
         p.write_text("# reviewed local version")
         pins = {"workload.py": digest(p)}
@@ -240,48 +290,54 @@ class DeploymentTests(unittest.TestCase):
             sync(fd)
         with patch.object(installer.os, "fsync", side_effect=edit):
             with self.assertRaisesRegex(ValueError, "before replacement"):
-                self.deploy(apply=True, expected_current=pins)
+                reviewed = self.deploy(apply=False, expected_current=pins)
+                self.deploy(apply=True, expected_current=pins, expected_plan_sha256=reviewed["plan_sha256"])
         self.assertEqual(p.read_text(), "# new user edit during copy")
         self.assertEqual(manifest.read_bytes(), before)
 
     def test_changed_runtime_is_not_claimed_at_publication(self):
-        self.deploy(apply=True)
+        self.apply_reviewed()
         manifest = self.home / "maintenance/runtime-ownership.json"
         before = manifest.read_bytes()
+        reviewed = self.deploy(apply=False)
         actual_hash = installer.sha256
         target = self.home / "maintenance/runtime/common.py"
         calls = 0
         def inject(path):
             nonlocal calls
-            if path == target:
+            if Path(path).resolve() == target.resolve():
                 calls += 1
-                if calls == 2:
+                if calls == 3:
                     path.write_text("# concurrent user change")
             return actual_hash(path)
         with patch.object(installer, "sha256", side_effect=inject):
             with self.assertRaisesRegex(ValueError, "ownership publication"):
-                self.deploy(apply=True)
+                self.deploy(apply=True, expected_plan_sha256=reviewed["plan_sha256"])
         self.assertEqual(manifest.read_bytes(), before)
         self.assertEqual(target.read_text(), "# concurrent user change")
 
     def test_unknown_runtime_edit_requires_exact_pin(self):
-        self.deploy(apply=True)
+        self.apply_reviewed()
         p = self.home / "maintenance/runtime/workload.py"
         p.write_text("# local edit")
         with self.assertRaisesRegex(ValueError, "conflict"):
             self.deploy(apply=True)
         pins = {"workload.py": digest(p)}
-        self.deploy(apply=True, expected_current=pins)
+        self.apply_reviewed(expected_current=pins)
         p.write_text("# a different local edit")
         with self.assertRaisesRegex(ValueError, "reviewed plan"):
-            self.deploy(apply=True, expected_current=pins)
+            reviewed = self.deploy(apply=False, expected_current=pins)
+            self.deploy(apply=True, expected_current=pins, expected_plan_sha256=reviewed["plan_sha256"])
 
     def test_newline_only_and_real_drift(self):
-        self.deploy(apply=True)
+        self.apply_reviewed()
         p = self.home / "maintenance/runtime/workload.py"
         p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        before = p.read_bytes()
         row = compare(installer.REPO_ROOT / "scripts/workload.py", p)
         self.assertIn(row["status"], ("same", "newline_only"))
+        self.apply_reviewed()
+        self.assertEqual(p.read_bytes(), before)
         self.assertFalse(any(x.status == "FAIL" for x in doctor.check_runtime_deployment(self.home)))
         p.write_text("# real change")
         self.assertTrue(any(x.status == "FAIL" for x in doctor.check_runtime_deployment(self.home)))
