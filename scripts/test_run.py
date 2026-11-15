@@ -17,7 +17,7 @@ import uuid
 from common import active_codex_home, atomic_write_json, sha256
 from maintenance import safe, tree
 from mcp_lifecycle import WindowsJob, stop
-from workload import work_slot
+from workload import GENERAL_JOB_SLOTS, work_slot
 from storage_lifecycle import Guard, snapshot, remove
 
 OWNER = "codex-test-run-v1"
@@ -242,7 +242,8 @@ def _execute(home, command, timeout, pytest_args=None):
             value.update(state="finished", exit_code=code, finished=time.time())
             atomic_write_json(path / "run.json", value)
     if log.exists():
-        atomic_write_json(log.with_suffix(".json"), {**value, "log_sha256": sha256(log)})
+        atomic_write_json(log.with_suffix(".json"), {**value, "log_sha256": sha256(log),
+                                                   "wrapper_state": "finalizing"})
         with log.open("rb") as stream:
             shutil.copyfileobj(stream, sys.stdout.buffer)
         sys.stdout.flush()
@@ -251,9 +252,14 @@ def _execute(home, command, timeout, pytest_args=None):
             remove_owned(path, home)
         except (OSError, ValueError) as exc:
             cleanup_error = str(exc)
-    print(json.dumps({"test_run": run_id, "exit_code": code, "scratch_removed": not path.exists(),
-                      "cleanup_error": cleanup_error}), flush=True)
-    return 2 if cleanup_error else code
+    wrapper_code = 2 if cleanup_error else code
+    print(json.dumps({"test_run": run_id, "exit_code": code, "wrapper_exit_code": wrapper_code,
+                      "scratch_removed": not path.exists(), "cleanup_error": cleanup_error}), flush=True)
+    if log.exists():
+        atomic_write_json(log.with_suffix(".json"), {**value, "log_sha256": sha256(log),
+            "wrapper_state": "finished", "wrapper_exit_code": wrapper_code,
+            "cleanup_error": cleanup_error, "scratch_removed": not path.exists()})
+    return wrapper_code
 
 
 def main():
@@ -262,7 +268,8 @@ def main():
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--timeout", type=float)
     parser.add_argument("--pytest", action="store_true")
-    parser.add_argument("--light", action="store_true", help="general work: max three processes, no full-suite overlap permission")
+    parser.add_argument("--light", action="store_true",
+                        help=f"shared pool of {GENERAL_JOB_SLOTS} jobs; full suites retain the heavy slot")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     home = active_codex_home()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,8 +16,10 @@ import uuid
 from common import REPO_ROOT, active_codex_home, atomic_write_json, sha256
 from maintenance import safe
 from storage_lifecycle import toml_table_boundaries, validate_toml
+from deployment_state import compare
+from workload import lock as lease
 
-FILES = ("common.py", "maintenance.py", "storage_lifecycle.py", "workload.py", "task_run.py", "mcp_lifecycle.py", "test_run.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
+FILES = ("common.py", "maintenance.py", "storage_lifecycle.py", "runtime_settings.py", "workload.py", "task_run.py", "mcp_lifecycle.py", "test_run.py", "task_completion.py", "repair_maintenance_acl.ps1", "run_maintenance.ps1")
 
 TASK_RULE = """<!-- codex-storage-lifecycle:start -->
 ## Task storage and load
@@ -28,7 +31,8 @@ TASK_RULE = """<!-- codex-storage-lifecycle:start -->
 - Before completing or abandoning a task, remove its owned disposable scratch;
   retain failed scratch three days. Report retained paths and their reason.
   Preserve accepted results, required evidence, user changes and pinned data.
-- Keep at most three executing autonomous jobs. Idle chats hold no job slot.
+- Pool capacity is defined in portable-harness/scripts/runtime_settings.py;
+  honor stricter native/project limits. Idle chats hold no job slot.
   Use bounded GitHub checks on a meaningful change; avoid rapid API polling.
 - Maintenance previews first. Apply only a reviewed plan after user approval.
 - At task end update the project's handoff: progress, output paths, needed
@@ -78,7 +82,128 @@ def patch_mcp(text: str, home: Path, python: str):
     return changed, "removed-disabled-server"
 
 
+def runtime_plan(home: Path, expected_current=None):
+    """Inspect only runtime bytes. Explicit pins allow reviewed local migrations."""
+    home = Path(os.path.abspath(home)).resolve()
+    runtime = safe(home / "maintenance/runtime", home)
+    manifest = safe(home / "maintenance/runtime-ownership.json", home)
+    manifest_raw = manifest.read_bytes() if manifest.exists() else None
+    previous = json.loads(manifest_raw) if manifest_raw is not None else {"files": {}}
+    expected_current = expected_current or {}
+    if (not isinstance(expected_current, dict) or set(expected_current) - set(FILES)
+            or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                   for value in expected_current.values())):
+        raise ValueError("invalid expected runtime files")
+    rows = []
+    for name in FILES:
+        target = safe(runtime / name, home)
+        source = REPO_ROOT / "scripts" / name
+        row = compare(source, target)
+        if name in expected_current and row["installed_sha256"] != expected_current[name]:
+            raise ValueError(f"runtime changed since reviewed plan: {name}")
+        if row["status"] == "different" and row["installed_sha256"] not in (previous.get("files", {}).get(name), expected_current.get(name)):
+            raise ValueError(f"user-modified runtime conflict: {name}")
+        rows.append({"name": name, **row})
+    value = {
+        "schema_version": 1,
+        "kind": "runtime-install-plan",
+        "target_home": str(home),
+        "manifest_sha256": None if manifest_raw is None else hashlib.sha256(manifest_raw).hexdigest(),
+        "expected_current": dict(sorted(expected_current.items())),
+        "files": rows,
+    }
+    payload = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {**value, "plan_sha256": hashlib.sha256(payload).hexdigest()}
+
+
+def _verify_runtime_plan(plan, expected_plan_sha256):
+    if not isinstance(expected_plan_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_plan_sha256):
+        raise ValueError("runtime-only apply requires expected plan SHA-256")
+    if plan["plan_sha256"] != expected_plan_sha256:
+        raise ValueError("runtime source, target, ownership, home, or migration pins changed since reviewed plan")
+
+
+def _deploy_runtime(home: Path, plan):
+    rows = plan["files"]
+    state = safe(home / "maintenance", home)
+    runtime = safe(state / "runtime", home)
+    manifest = safe(state / "runtime-ownership.json", home)
+    before_manifest = manifest.read_bytes() if manifest.exists() else None
+    if (None if before_manifest is None else hashlib.sha256(before_manifest).hexdigest()) != plan["manifest_sha256"]:
+        raise ValueError("runtime ownership changed since reviewed plan")
+    for row in rows:
+        target = safe(runtime / row["name"], home)
+        source = REPO_ROOT / "scripts" / row["name"]
+        if ((sha256(target) if target.exists() else None) != row["installed_sha256"]
+                or sha256(source) != row["source_sha256"]):
+            raise ValueError(f"runtime source or target changed since reviewed plan: {row['name']}")
+    backup = safe(state / "install-backups" / (time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex), home)
+    backup.mkdir(parents=True)
+    runtime.mkdir(parents=True, exist_ok=True)
+    if before_manifest is not None:
+        (backup / manifest.name).write_bytes(before_manifest)
+    for row in rows:
+        target = safe(runtime / row["name"], home)
+        if target.exists():
+            shutil.copy2(target, backup / row["name"])
+    for row in rows:
+        name = row["name"]
+        target = safe(runtime / name, home)
+        source = REPO_ROOT / "scripts" / name
+        if (sha256(target) if target.exists() else None) != row["installed_sha256"] or sha256(source) != row["source_sha256"]:
+            raise ValueError(f"runtime changed during deployment: {name}; backup retained")
+        if row["status"] not in ("same", "newline_only"):
+            payload = source.read_bytes()
+            if hashlib.sha256(payload).hexdigest() != row["source_sha256"]:
+                raise ValueError(f"runtime source changed during deployment: {name}")
+            temporary = target.with_suffix(target.suffix + ".new")
+            with temporary.open("xb") as out:
+                out.write(payload); out.flush(); os.fsync(out.fileno())
+            target = safe(runtime / name, home)
+            if (sha256(target) if target.exists() else None) != row["installed_sha256"]:
+                raise ValueError(f"runtime changed before replacement: {name}; backup and temporary retained")
+            os.replace(temporary, target)
+    if (manifest.read_bytes() if manifest.exists() else None) != before_manifest:
+        raise ValueError("runtime ownership changed concurrently; backup retained")
+    installed = {}
+    for row in rows:
+        name = row["name"]
+        expected = row["installed_sha256"] if row["status"] in ("same", "newline_only") else row["source_sha256"]
+        actual = sha256(safe(runtime / name, home))
+        if actual != expected:
+            raise ValueError(f"runtime changed before ownership publication: {name}; backup retained")
+        installed[name] = actual
+    atomic_write_json(manifest, {"owner": "codex-portable-harness", "files": installed})
+    print(json.dumps({"runtime_only_applied": True, "backup": str(backup)}))
+    return plan
+
+
+def deploy_runtime(home: Path, apply: bool, expected_current=None, expected_plan_sha256=None):
+    home = Path(os.path.abspath(home)).resolve()
+    reviewed = runtime_plan(home, expected_current)
+    print(json.dumps({"mode": "runtime-only", "apply": apply, **reviewed}))
+    if not apply:
+        return reviewed
+    _verify_runtime_plan(reviewed, expected_plan_sha256)
+    state = safe(home / "maintenance", home)
+    state.mkdir(parents=True, exist_ok=True)
+    with lease(safe(state / "runtime-install.lock", home)):
+        current = runtime_plan(home, expected_current)
+        _verify_runtime_plan(current, expected_plan_sha256)
+        return _deploy_runtime(home, current)
+
+
 def deploy(home: Path, apply: bool, python: str):
+    if not apply:
+        return _deploy(home, False, python)
+    _deploy(home, False, python)  # Keep validation failures write-free.
+    state = safe(home / "maintenance", home)
+    state.mkdir(parents=True, exist_ok=True)
+    with lease(safe(state / "runtime-install.lock", home)):
+        return _deploy(home, True, python)
+
+
+def _deploy(home: Path, apply: bool, python: str):
     state = safe(home / "maintenance", home)
     runtime = safe(state / "runtime", home)
     manifest_path = safe(state / "runtime-ownership.json", home)
@@ -169,7 +294,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--runtime-only", action="store_true", help="update runtime bytes only; leave config, hooks, schedules and rules unchanged")
+    parser.add_argument("--expected-current", type=Path, help="JSON of reviewed current runtime filename to raw SHA-256; runtime-only")
+    parser.add_argument("--expected-plan-sha256", help="exact plan_sha256 printed by the reviewed runtime-only preview")
     args = parser.parse_args()
+    if (args.expected_current or args.expected_plan_sha256) and not args.runtime_only:
+        parser.error("--expected-current and --expected-plan-sha256 require --runtime-only")
+    if args.runtime_only and args.apply and not args.expected_plan_sha256:
+        parser.error("runtime-only --apply requires --expected-plan-sha256 from preview")
+    if args.runtime_only:
+        expected = json.loads(args.expected_current.read_text(encoding="utf-8")) if args.expected_current else None
+        deploy_runtime(active_codex_home(), args.apply, expected, args.expected_plan_sha256)
+        return
     deploy(active_codex_home(), args.apply, str(Path(args.python).resolve()))
 
 

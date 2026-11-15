@@ -44,7 +44,7 @@ CASES = [
     ("task-end-rule", "install_maintenance.py", 'changed_agents = block.sub(TASK_RULE, agents_text) if block.search(agents_text) else agents_text.rstrip()+"\\n\\n"+TASK_RULE', 'changed_agents = agents_text', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
     ("hook-preview", "install_maintenance.py", '''str(runtime / "test_run.py") + '" --clean' ''', '''str(runtime / "test_run.py") + '" --clean --apply' ''', E+"test_deployment_disables_mcp_and_installs_preview_hook_and_rule_once"),
     ("heavy-single-suite", "workload.py", "if heavy:", "if False:", E+"test_heavy_execution_waits_for_the_existing_suite"),
-    ("three-active-jobs", "workload.py", "for number in range(3):", "for number in range(4):", E+"test_three_general_jobs_block_the_fourth_and_release_on_exit"),
+    ("configured-active-jobs", "workload.py", "for number in range(GENERAL_JOB_SLOTS):", "for number in range(GENERAL_JOB_SLOTS + 1):", E+"test_configured_general_jobs_block_the_next_and_release_on_exit"),
     ("approved-plan-hash", "maintenance.py", "if sha256(args.approved_plan) != args.plan_sha256:", "if False:", E+"test_apply_requires_reviewed_plan_and_matching_hash"),
     ("approved-candidates", "maintenance.py", "if approved is not None and identity(item) not in allowed:", "if False:", E+"test_changed_and_new_candidates_are_retained_after_preview"),
     ("approved-scope", "maintenance.py", 'if approved.get("home") != str(home) or approved.get("rules_hash") != rules_hash or approved.get("only") != args.only:', 'if False:', E+"test_local_rule_changes_require_another_preview"),

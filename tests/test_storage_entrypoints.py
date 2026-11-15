@@ -330,14 +330,14 @@ class StorageEntrypoints(unittest.TestCase):
         self.assertIn(b'heavy workload slot wait expired',result.stderr)
         self.assertFalse(marker.exists())
 
-    def test_three_general_jobs_block_the_fourth_and_release_on_exit(self):
+    def test_configured_general_jobs_block_the_next_and_release_on_exit(self):
         code="import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from workload import work_slot\nwith work_slot(Path(sys.argv[2]),heavy=False,wait=.2):print('acquired')"
         command=[sys.executable,'-c',code,str(Path(workload.__file__).parent),str(self.home)]
         with contextlib.ExitStack() as leases:
-            for _ in range(3):leases.enter_context(workload.work_slot(self.home,heavy=False))
+            for _ in range(workload.GENERAL_JOB_SLOTS):leases.enter_context(workload.work_slot(self.home,heavy=False))
             blocked=subprocess.run(command,capture_output=True,timeout=10)
             self.assertNotEqual(blocked.returncode,0)
-            self.assertIn(b'three executing jobs already hold slots',blocked.stderr)
+            self.assertIn(f'all {workload.GENERAL_JOB_SLOTS} general workload slots are occupied'.encode(),blocked.stderr)
         released=subprocess.run(command,capture_output=True,timeout=10)
         self.assertEqual(released.returncode,0,released.stderr)
         self.assertIn(b'acquired',released.stdout)

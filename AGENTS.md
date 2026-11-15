@@ -10,7 +10,7 @@
 - New scratch belongs under `CODEX_HOME/tmp`; new clones and linked worktrees
   belong under `CODEX_HOME/worktrees`. On task completion or abandonment, clear
   owned disposable scratch and report retained paths with their reasons.
-- Run autonomous work through `task_run.py` (three executing jobs maximum) and
+- Run autonomous work through `task_run.py` (capacity in `scripts/runtime_settings.py`) and
   tests through `test_run.py` (one heavy suite). Preserve native host controls.
 - Before task completion update the project's existing handoff, or its
   `CODEX_HOME/maintenance/handovers/<project>.md`: progress, output locations,
