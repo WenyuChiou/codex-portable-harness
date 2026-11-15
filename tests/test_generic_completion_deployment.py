@@ -28,7 +28,8 @@ class CompletionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # macOS exposes the system temporary directory through /var -> /private/var.
+        self.root = Path(self.temp.name).resolve()
         self.artifact = self.root / "report.txt"
         self.artifact.write_text("fixture result", encoding="utf-8")
         self.spec = {"schema_version": 1, "task_id": "fixture", "version": "v1",
@@ -177,7 +178,7 @@ class DeploymentTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name) / "codex"
+        self.home = Path(self.tmp.name).resolve() / "codex"
         self.home.mkdir()
 
     def deploy(self, **kwargs):
@@ -259,12 +260,20 @@ class DeploymentTests(unittest.TestCase):
 
     def test_full_installer_keeps_template_and_managed_block(self):
         p = self.home / "AGENTS.md"
-        before = (installer.REPO_ROOT / "templates/AGENTS.md").read_bytes()
-        p.write_bytes(before)
-        with contextlib.redirect_stdout(io.StringIO()):
-            installer.deploy(self.home, True, sys.executable)
-            installer.deploy(self.home, True, sys.executable)
-        self.assertEqual(p.read_bytes(), before)
+        template = (installer.REPO_ROOT / "templates/AGENTS.md").read_bytes().replace(b"\r\n", b"\n")
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                before = template.replace(b"\n", newline)
+                p.write_bytes(before)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    installer.deploy(self.home, True, sys.executable)
+                    first = p.read_bytes()
+                    installer.deploy(self.home, True, sys.executable)
+                # The managed block uses LF; surrounding user bytes remain exact.
+                start = before.index(b"<!-- codex-storage-lifecycle:start -->")
+                self.assertEqual(first[:start], before[:start])
+                self.assertEqual(first.replace(b"\r\n", b"\n"), template)
+                self.assertEqual(p.read_bytes(), first)
 
     def test_both_installers_obey_shared_lease(self):
         state = self.home / "maintenance"

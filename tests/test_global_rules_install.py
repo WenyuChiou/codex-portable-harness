@@ -169,9 +169,11 @@ class GlobalRulesInstallTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "symlink"):
                         apply(home)
             else:
-                with self.assertRaisesRegex(ValueError, "symlink"):
+                # A real out-of-root link can fail containment before the link check.
+                with self.assertRaisesRegex(ValueError, "symlink|path escapes allowed root"):
                     apply(home)
             self.assertEqual(outside.read_text(encoding="utf-8"), "outside")
+            self.assertFalse((home / installer.MANIFEST_RELATIVE).exists())
 
     def test_apply_uses_shared_runtime_install_lease(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
